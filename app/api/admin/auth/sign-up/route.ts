@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json(
       {
         success: true,
-        message: "Admin account created successfully",
+        message: `Your account has been created successfully. Welcome, ${admin.firstname}!`,
         data: {
           accountname: admin.accountname,
           firstname: admin.firstname,

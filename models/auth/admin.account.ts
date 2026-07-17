@@ -103,9 +103,87 @@ const AdminAccountSchema = new Schema<AdminAccount>(
 );
 
 // Indexes for faster queries on unique fields
-AdminAccountSchema.index({ accountname: 1 }, { unique: true });
-AdminAccountSchema.index({ email: 1 }, { unique: true });
-AdminAccountSchema.index({ phonenumber: 1 }, { unique: true });
+AdminAccountSchema.index(
+  { accountname: 1 },
+  {
+    unique: true,
+    name: "idx_accountname_unique",
+    background: true,
+  },
+);
+
+AdminAccountSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    name: "idx_email_unique",
+    background: true,
+  },
+);
+
+AdminAccountSchema.index(
+  { phonenumber: 1 },
+  {
+    unique: true,
+    name: "idx_phonenumber_unique",
+    background: true,
+  },
+);
+
+AdminAccountSchema.index(
+  { accountname: 1, email: 1, phonenumber: 1 },
+  {
+    name: "login_compound_idx",
+    background: true,
+  },
+);
+
+// 2. Index for sorting by createdAt (for admin listing)
+AdminAccountSchema.index(
+  { createdAt: -1 },
+  {
+    name: "created_at_desc_idx",
+    background: true,
+  },
+);
+
+// 3. Index for sorting by updatedAt
+AdminAccountSchema.index(
+  { updatedAt: -1 },
+  {
+    name: "updated_at_desc_idx",
+    background: true,
+  },
+);
+
+// 4. Text index for search functionality (optional but recommended)
+AdminAccountSchema.index(
+  {
+    accountname: "text",
+    email: "text",
+    firstname: "text",
+    lastname: "text",
+  },
+  {
+    name: "admin_search_text_idx",
+    background: true,
+    weights: {
+      accountname: 10,
+      email: 8,
+      firstname: 5,
+      lastname: 5,
+    },
+  },
+);
+
+// 5. Compound index for duplicate checking during signup
+AdminAccountSchema.index(
+  { accountname: 1, email: 1, phonenumber: 1 },
+  {
+    name: "duplicate_check_idx",
+    background: true,
+  },
+);
 
 const AdminAccountModel =
   models.AdminAccount ||
