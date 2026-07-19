@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
-import AdminAccountModel from "@/models/auth/admin.account";
+import AdminAccountModel from "@/models/auth/admin.account.model";
 import jwt from "jsonwebtoken";
 
 interface AdminTokenPayload {

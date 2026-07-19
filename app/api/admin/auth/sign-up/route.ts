@@ -1,7 +1,7 @@
 import { ConnectDB } from "@/db/connect.db";
 import { NextResponse, NextRequest } from "next/server";
 import EnvSecrets from "@/config/env.secrets";
-import AdminAccountModel from "@/models/auth/admin.account";
+import AdminAccountModel from "@/models/auth/admin.account.model";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import { hash } from "bcrypt";
 import { sign } from "jsonwebtoken";

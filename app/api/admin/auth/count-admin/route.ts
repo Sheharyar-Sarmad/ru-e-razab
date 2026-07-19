@@ -2,7 +2,7 @@ import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import { NextResponse } from "next/server";
-import AdminAccountModel from "@/models/auth/admin.account";
+import AdminAccountModel from "@/models/auth/admin.account.model";
 
 
 export async function GET() {

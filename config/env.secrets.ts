@@ -6,6 +6,9 @@ const EnvSecrets = {
     mongoName: process.env.MONGO_DB_NAME,
     appEnv: process.env.APP_ENV,
     appUrl: process.env.APP_URL,
+    cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
+    cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET, 
 };
 
 const requiredEnvVariables: {
@@ -18,6 +21,9 @@ const requiredEnvVariables: {
     mongoName: "string",
     appEnv: "string",
     appUrl: "string",
+    cloudinaryCloudName: "string",
+    cloudinaryApiKey: "string",
+    cloudinaryApiSecret: "string",  
 };
 
 for (const variable of Object.keys(

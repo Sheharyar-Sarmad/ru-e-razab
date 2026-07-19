@@ -1,6 +1,6 @@
 import { Schema, models, model } from "mongoose";
 
-interface AdminAccount {
+interface UserAccount {
   accountname: string;
   firstname: string;
   lastname: string;
@@ -11,7 +11,7 @@ interface AdminAccount {
   updatedAt: Date;
 }
 
-const AdminAccountSchema = new Schema<AdminAccount>(
+const UserAccountSchema = new Schema<UserAccount>(
   {
     accountname: {
       type: String,
@@ -74,14 +74,13 @@ const AdminAccountSchema = new Schema<AdminAccount>(
 
     phonenumber: {
       type: String,
-      required: [true, "Phone number is required"],
+      required: false,
       unique: true,
+      sparse: true, // Important: Allows multiple null/undefined values
       trim: true,
-
-      // E.164 format
       match: [
-        /^\+[1-9]\d{7,14}$/,
-        "Phone number must be in international format, e.g. +923001234567",
+        /^(\+\d{1,3}[- ]?)?\d{10,14}$/, // More flexible: +92 300 1234567 or 03001234567
+        "Please enter a valid phone number",
       ],
     },
 
@@ -89,6 +88,7 @@ const AdminAccountSchema = new Schema<AdminAccount>(
       type: String,
       required: true,
       trim: true,
+      unique: true,
       lowercase: true,
       maxlength: [254, "Email cannot exceed 254 characters"],
       match: [
@@ -103,7 +103,7 @@ const AdminAccountSchema = new Schema<AdminAccount>(
 );
 
 // Indexes for faster queries on unique fields
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { accountname: 1 },
   {
     unique: true,
@@ -112,7 +112,7 @@ AdminAccountSchema.index(
   },
 );
 
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { email: 1 },
   {
     unique: true,
@@ -121,7 +121,7 @@ AdminAccountSchema.index(
   },
 );
 
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { phonenumber: 1 },
   {
     unique: true,
@@ -130,7 +130,7 @@ AdminAccountSchema.index(
   },
 );
 
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { accountname: 1, email: 1, phonenumber: 1 },
   {
     name: "login_compound_idx",
@@ -139,7 +139,7 @@ AdminAccountSchema.index(
 );
 
 // 2. Index for sorting by createdAt (for admin listing)
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { createdAt: -1 },
   {
     name: "created_at_desc_idx",
@@ -148,7 +148,7 @@ AdminAccountSchema.index(
 );
 
 // 3. Index for sorting by updatedAt
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { updatedAt: -1 },
   {
     name: "updated_at_desc_idx",
@@ -157,7 +157,7 @@ AdminAccountSchema.index(
 );
 
 // 4. Text index for search functionality (optional but recommended)
-AdminAccountSchema.index(
+UserAccountSchema.index(
   {
     accountname: "text",
     email: "text",
@@ -165,7 +165,7 @@ AdminAccountSchema.index(
     lastname: "text",
   },
   {
-    name: "admin_search_text_idx",
+    name: "user_search_text_idx",
     background: true,
     weights: {
       accountname: 10,
@@ -177,7 +177,7 @@ AdminAccountSchema.index(
 );
 
 // 5. Compound index for duplicate checking during signup
-AdminAccountSchema.index(
+UserAccountSchema.index(
   { accountname: 1, email: 1, phonenumber: 1 },
   {
     name: "duplicate_check_idx",
@@ -185,8 +185,7 @@ AdminAccountSchema.index(
   },
 );
 
-const AdminAccountModel =
-  models.AdminAccount ||
-  model<AdminAccount>("AdminAccount", AdminAccountSchema);
+const UserAccountModel =
+  models.UserAccount || model<UserAccount>("User", UserAccountSchema);
 
-export default AdminAccountModel;
+export default UserAccountModel;
