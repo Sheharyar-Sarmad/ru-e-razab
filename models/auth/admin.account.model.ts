@@ -186,6 +186,6 @@ AdminAccountSchema.index(
 
 const AdminAccountModel =
   models.AdminAccount ||
-  model<AdminAccount>("Admin", AdminAccountSchema);
+  model<AdminAccount>("AdminAccount", AdminAccountSchema);
 
 export default AdminAccountModel;

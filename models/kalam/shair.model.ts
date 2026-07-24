@@ -8,6 +8,7 @@ interface Comment {
 
 interface Shair {
   takhallus: string;
+  slug: string;
   content: string[];
   category: string[];
   coverImage: string;
@@ -44,6 +45,14 @@ const ShairSchema = new Schema<Shair>(
       trim: true,
       minlength: [2, "Takhallus must be at least 2 characters long"],
       maxlength: [50, "Takhallus cannot exceed 50 characters"],
+    },
+
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
     },
 
     content: {
@@ -116,6 +125,18 @@ const ShairSchema = new Schema<Shair>(
     timestamps: true,
   },
 );
+
+// Automatically generate slug from the first line
+ShairSchema.pre("validate", function () {
+  if (this.content?.[0]) {
+    this.slug = this.content[0]
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+  }
+});
 
 const ShairModel =
   models.Shair ||

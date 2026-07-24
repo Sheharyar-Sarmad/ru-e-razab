@@ -12,6 +12,7 @@ interface Shair {
 
 interface Qata {
   takhallus: string;
+  slug: string;
   content: Shair[];
   category: string[];
   coverImage: string;
@@ -62,6 +63,7 @@ const ShairSchema = new Schema<Shair>(
                 line.length >= 2 &&
                 line.length <= 300,
             ),
+
           message:
             "Each line must be between 2 and 300 characters",
         },
@@ -83,6 +85,14 @@ const QataSchema = new Schema<Qata>(
       maxlength: [50, "Takhallus cannot exceed 50 characters"],
     },
 
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
+    },
+
     content: {
       type: [ShairSchema],
       required: true,
@@ -91,7 +101,8 @@ const QataSchema = new Schema<Qata>(
         validator: (shairs: Shair[]) =>
           shairs.length === 2,
 
-        message: "A Qata must contain exactly 2 shairs",
+        message:
+          "A Qata must contain exactly 2 shairs",
       },
     },
 
@@ -136,7 +147,21 @@ const QataSchema = new Schema<Qata>(
   },
 );
 
+// Automatically generate slug from the first line
+// of the first shair
+QataSchema.pre("validate", function () {
+  if (this.content?.[0]?.lines?.[0]) {
+    this.slug = this.content[0].lines[0]
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+  }
+});
+
 const QataModel =
-  models.Qata || model<Qata>("Qata", QataSchema);
+  models.Qata ||
+  model<Qata>("Qata", QataSchema);
 
 export default QataModel;

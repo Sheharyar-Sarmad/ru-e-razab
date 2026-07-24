@@ -12,6 +12,7 @@ interface Shair {
 
 interface Ghazal {
   takhallus: string;
+  slug: string;
   content: Shair[];
   category: string[];
   coverImage: string;
@@ -62,6 +63,7 @@ const ShairSchema = new Schema<Shair>(
                 line.length >= 2 &&
                 line.length <= 300,
             ),
+
           message:
             "Each line must be between 2 and 300 characters",
         },
@@ -81,6 +83,14 @@ const GhazalSchema = new Schema<Ghazal>(
       trim: true,
       minlength: [2, "Takhallus must be at least 2 characters long"],
       maxlength: [50, "Takhallus cannot exceed 50 characters"],
+    },
+
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
     },
 
     content: {
@@ -137,6 +147,25 @@ const GhazalSchema = new Schema<Ghazal>(
     timestamps: true,
   },
 );
+
+// Indexes
+GhazalSchema.index({ createdAt: -1 });
+
+// 3. Compound index for future GET requests (if you add takhallus search)
+GhazalSchema.index({ takhallus: 1, createdAt: -1 });
+
+// Automatically generate slug from the first line
+// of the first shair
+GhazalSchema.pre("validate", function () {
+  if (this.content?.[0]?.lines?.[0]) {
+    this.slug = this.content[0].lines[0]
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+  }
+});
 
 const GhazalModel =
   models.Ghazal ||
