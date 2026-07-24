@@ -1,41 +1,209 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# ============================================
+# DEPENDENCIES
+# ============================================
 /node_modules
 /.pnp
-.pnp.*
+.pnp.js
+.pnp-lock.yaml
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
+!.yarn/sdks
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# ============================================
+# NEXT.JS SPECIFIC
+# ============================================
 /.next/
 /out/
-
-# production
 /build
+/dist
+/.vercel
+/.turbo
+/.cache
+/.nextjs
 
-# misc
-.DS_Store
-*.pem
+# ============================================
+# ENVIRONMENT VARIABLES & SECRETS
+# ============================================
+.env
+.env.*
+!.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+.env.staging
+*.env
+*.env.*
+!.env.example
 
-# debug
+# ============================================
+# LOGS
+# ============================================
+logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+debug.log
+error.log
+combined.log
+access.log
 
-# env files (can opt-in for committing if needed)
-.env*
+# ============================================
+# RUNTIME DATA
+# ============================================
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.pem
+*.key
+*.cert
+*.crt
 
-# vercel
-.vercel
+# ============================================
+# DATABASE FILES
+# ============================================
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.mongodb
+*.dump
+*.backup
+/data
+/database
+/prisma/*.db
+/prisma/*.sqlite
 
-# typescript
+# ============================================
+# UPLOADS & MEDIA
+# ============================================
+/public/uploads/
+/public/images/uploads/
+/public/media/
+/uploads/
+/media/
+/temp/
+/tmp/
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mov
+*.mkv
+
+# ============================================
+# TESTING & COVERAGE
+# ============================================
+/coverage
+/.nyc_output
+/.jest
+/__tests__/__snapshots__
+*.test.js
+*.spec.js
+/.test
+
+# ============================================
+# BUILD TOOLS & CONFIGURATION
+# ============================================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+.npm
+.npmrc
+.yarnrc
+.yarn-integrity
+.parcel-cache
+
+# ============================================
+# EDITOR & IDE FILES
+# ============================================
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+.settings/
+.project
+.classpath
+.metadata/
+
+# ============================================
+# OS FILES
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+desktop.ini
+
+# ============================================
+# TEMPORARY FILES
+# ============================================
+*.tmp
+*.temp
+*.cache
+.cache/
+.temp/
+.tmp/
+
+# ============================================
+# ANALYTICS & STATS
+# ============================================
+*.stats
+*.stats-*.json
+.stats/
+.analytics/
+
+# ============================================
+# BACKUP FILES
+# ============================================
+*.backup
+*.bak
+*.old
+*.orig
+
+# ============================================
+# CLOUDINARY / CLOUD FILES
+# ============================================
+/cloudinary/
+/cloudinary-*.json
+
+# ============================================
+# MISCELLANEOUS
+# ============================================
+*.pid
+*.seed
+*.pid.lock
 *.tsbuildinfo
-next-env.d.ts
+.next-build
+.vercel_build
+*.tgz
+*.tar.gz
+*.zip
+*.rar
+*.7z
+node_modules
