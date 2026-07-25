@@ -21,6 +21,14 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  if (pathname.startsWith("/api/client/dashboard")) {
+    const userResponse = await VerifyAdmin(request);
+
+    if (userResponse) {
+      return userResponse;
+    }
+  }
+
   // 3. Protect admin dashboard pages
   if (pathname.startsWith("/admin/dashboard")) {
     const adminResponse = await VerifyAdmin(request);

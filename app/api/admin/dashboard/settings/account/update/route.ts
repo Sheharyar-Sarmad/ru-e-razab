@@ -4,7 +4,7 @@ import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import AdminAccountModel from "@/models/auth/admin.account.model";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 interface AdminTokenPayload {

@@ -28,7 +28,7 @@ const CommentSchema = new Schema<Comment>(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "UserAccount",
       required: true,
     },
 
@@ -136,7 +136,7 @@ const NazmSchema = new Schema<Nazm>(
       type: [
         {
           type: Schema.Types.ObjectId,
-          ref: "User",
+          ref: "UserAccount",
         },
       ],
       default: [],

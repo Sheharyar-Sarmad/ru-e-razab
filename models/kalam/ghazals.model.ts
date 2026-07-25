@@ -24,7 +24,7 @@ const CommentSchema = new Schema<Comment>(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "UserAccount",
       required: true,
     },
 
@@ -131,7 +131,7 @@ const GhazalSchema = new Schema<Ghazal>(
       type: [
         {
           type: Schema.Types.ObjectId,
-          ref: "User",
+          ref: "UserAccount",
         },
       ],
       default: [],
@@ -149,10 +149,56 @@ const GhazalSchema = new Schema<Ghazal>(
 );
 
 // Indexes
-GhazalSchema.index({ createdAt: -1 });
+// 1. For pagination sorting
+GhazalSchema.index(
+  { createdAt: -1 },
+  { name: "created_at_desc_idx" }
+);
 
-// 3. Compound index for future GET requests (if you add takhallus search)
-GhazalSchema.index({ takhallus: 1, createdAt: -1 });
+// 2. For search by first line (CRITICAL for your API!)
+GhazalSchema.index(
+  { "content.0.lines.0": 1 },
+  { name: "first_line_search_idx" }
+);
+
+// 3. For search + pagination (Compound Index)
+GhazalSchema.index(
+  { "content.0.lines.0": 1, createdAt: -1 },
+  { name: "search_pagination_idx" }
+);
+
+// 4. For takhallus search + sorting
+GhazalSchema.index(
+  { takhallus: 1, createdAt: -1 },
+  { name: "takhallus_created_at_idx" }
+);
+
+// 5. For count queries
+GhazalSchema.index(
+  { createdAt: -1 },
+  { 
+    name: "count_idx",
+    sparse: true 
+  }
+);
+
+// 6. For category filtering
+GhazalSchema.index(
+  { category: 1, createdAt: -1 },
+  { name: "category_created_at_idx" }
+);
+
+// 7. For popular ghazals (by likes)
+GhazalSchema.index(
+  { likes: 1, createdAt: -1 },
+  { name: "likes_created_at_idx" }
+);
+
+// 8. For most commented ghazals
+GhazalSchema.index(
+  { "comments": 1, createdAt: -1 },
+  { name: "comments_created_at_idx" }
+);
 
 // Automatically generate slug from the first line
 // of the first shair

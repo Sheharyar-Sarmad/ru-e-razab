@@ -24,7 +24,7 @@ const CommentSchema = new Schema<Comment>(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "UserAccount",
       required: true,
     },
 
@@ -130,7 +130,7 @@ const QataSchema = new Schema<Qata>(
       type: [
         {
           type: Schema.Types.ObjectId,
-          ref: "User",
+          ref: "UserAccount",
         },
       ],
       default: [],

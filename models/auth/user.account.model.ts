@@ -186,6 +186,6 @@ UserAccountSchema.index(
 );
 
 const UserAccountModel =
-  models.UserAccount || model<UserAccount>("User", UserAccountSchema);
+  models.UserAccount || model<UserAccount>("UserAccount", UserAccountSchema);
 
 export default UserAccountModel;

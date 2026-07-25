@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
 
     // Validate image file size and type
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif"];
 
     if (coverImageFile.size > MAX_FILE_SIZE) {
       return NextResponse.json(
@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: "Ghazal created successfully",
+        message: "Ghazal created successfully (جدید غزل تخلیق ہوگئی)",
         data: {
           ghazal: {
             id: ghazal._id,

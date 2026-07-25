@@ -3,7 +3,7 @@ import { NextResponse, NextRequest } from "next/server";
 import EnvSecrets from "@/config/env.secrets";
 import AdminAccountModel from "@/models/auth/admin.account.model";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
-import { hash } from "bcrypt";
+import { hash } from "bcryptjs";
 import { sign } from "jsonwebtoken";
 
 interface AdminAccountBody {
