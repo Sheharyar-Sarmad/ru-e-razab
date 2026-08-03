@@ -11,6 +11,7 @@
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+.gitignore
 
 # ============================================
 # NEXT.JS BUILD OUTPUT - IGNORE
@@ -161,12 +162,6 @@ desktop.ini
 *.bak
 *.old
 *.orig
-
-# ============================================
-# CLOUDINARY - IGNORE
-# ============================================
-/cloudinary/
-/cloudinary-*.json
 
 # ============================================
 # MISCELLANEOUS - IGNORE

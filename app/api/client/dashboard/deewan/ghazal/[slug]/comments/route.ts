@@ -4,12 +4,9 @@ import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import GhazalModel from "@/models/kalam/ghazals.model";
-import UserAccountModel from "@/models/auth/user.account.model";  // ✅ Add this import
-import jwt from "jsonwebtoken";
+import UserAccountModel from "@/models/auth/user.account.model";
 
-// ============================================
 // GET - Get All Comments with Status
-// ============================================
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -24,23 +21,23 @@ export async function GET(
     const limit = parseInt(searchParams.get("limit") || "10");
     const skip = (page - 1) * limit;
 
-    // Get user from token for comment status
-    const userToken = request.cookies.get("UserToken")?.value;
+    // Get user from token (already verified by proxy)
+    const userToken = request.cookies.get("UserCookie")?.value;
     let userId = null;
 
     if (userToken) {
       try {
-        const decoded = jwt.verify(userToken, EnvSecrets.jwtSecret as string) as any;
+        const decoded = JSON.parse(
+          Buffer.from(userToken.split(".")[1], "base64").toString()
+        );
         userId = decoded._id;
       } catch {
-        // Token invalid, continue as guest
+        // Token invalid
       }
     }
 
-    // ✅ Now populate should work with UserAccount model imported
     const ghazal = await GhazalModel.findOne({ slug })
       .select("comments")
-      .populate("comments.user", "firstname lastname email accountname")
       .lean();
 
     if (!ghazal) {
@@ -57,12 +54,41 @@ export async function GET(
     }
 
     const allComments = ghazal.comments || [];
-    const total = allComments.length;
-    const paginatedComments = allComments.slice(skip, skip + limit);
 
-    // Check if user has commented
+    // Manual population: Get user data for all comments
+    let commentsWithUser = [];
+    
+    if (allComments.length > 0) {
+      const userIds = [...new Set(
+        allComments
+          .map((c: any) => c.user?.toString())
+          .filter(Boolean)
+      )];
+
+      const users = await UserAccountModel.find({
+        _id: { $in: userIds }
+      })
+        .select("firstname lastname email accountname")
+        .lean();
+
+      const userMap = new Map();
+      users.forEach((user: any) => {
+        userMap.set(user._id.toString(), user);
+      });
+
+      commentsWithUser = allComments.map((comment: any) => ({
+        ...comment,
+        user: userMap.get(comment.user?.toString()) || null,
+      }));
+    } else {
+      commentsWithUser = allComments;
+    }
+
+    const total = commentsWithUser.length;
+    const paginatedComments = commentsWithUser.slice(skip, skip + limit);
+
     const hasUserCommented = userId 
-      ? allComments.some((c: any) => c.user?._id?.toString() === userId || c.user?.toString() === userId)
+      ? allComments.some((c: any) => c.user?.toString() === userId)
       : false;
 
     return NextResponse.json(
@@ -106,9 +132,7 @@ export async function GET(
   }
 }
 
-// ============================================
 // POST - Add Comment
-// ============================================
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -118,9 +142,22 @@ export async function POST(
 
     const { slug } = await params;
 
-    // Get user from token
-    const userToken = request.cookies.get("UserToken")?.value;
-    if (!userToken) {
+    // Get user from cookie (already verified by proxy)
+    const userToken = request.cookies.get("UserCookie")?.value;
+    let userId = null;
+
+    if (userToken) {
+      try {
+        const decoded = JSON.parse(
+          Buffer.from(userToken.split(".")[1], "base64").toString()
+        );
+        userId = decoded._id;
+      } catch {
+        // Invalid token
+      }
+    }
+
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
@@ -133,29 +170,9 @@ export async function POST(
       );
     }
 
-    let decoded: any;
-    try {
-      decoded = jwt.verify(userToken, EnvSecrets.jwtSecret as string);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid token",
-          data: null,
-          err: "INVALID_TOKEN",
-          status: HTTP_STATUS.UNAUTHORIZED,
-        },
-        { status: HTTP_STATUS.UNAUTHORIZED }
-      );
-    }
-
-    const userId = decoded._id;
-
-    // Parse body
     const body = await request.json();
     const { content } = body;
 
-    // Validate content
     if (!content || content.trim().length < 1) {
       return NextResponse.json(
         {
@@ -182,7 +199,6 @@ export async function POST(
       );
     }
 
-    // Find ghazal
     const ghazal = await GhazalModel.findOne({ slug });
 
     if (!ghazal) {
@@ -198,37 +214,37 @@ export async function POST(
       );
     }
 
-    // Initialize comments array if it doesn't exist
     if (!ghazal.comments) {
       ghazal.comments = [];
     }
 
-    // Add comment
-    ghazal.comments.push({
+    const newComment = {
       user: userId,
       content: content.trim(),
       createdAt: new Date(),
-    });
+    };
 
+    ghazal.comments.push(newComment);
     await ghazal.save();
 
-    // Get the updated ghazal with populated user
-    const updatedGhazal = await GhazalModel.findOne({ slug })
-      .select("comments")
-      .populate("comments.user", "firstname lastname email accountname")
+    const user = await UserAccountModel.findById(userId)
+      .select("firstname lastname email accountname")
       .lean();
 
-    const allComments = updatedGhazal?.comments || [];
-    const newComment = allComments[allComments.length - 1] || null;
+    const commentWithUser = {
+      ...newComment,
+      _id: ghazal.comments[ghazal.comments.length - 1]._id,
+      user,
+    };
 
     return NextResponse.json(
       {
         success: true,
-        message: "✅ Comment added successfully",
+        message: "Comment added successfully",
         data: {
-          comment: newComment,
+          comment: commentWithUser,
           status: {
-            totalComments: allComments.length,
+            totalComments: ghazal.comments.length,
             hasUserCommented: true,
             userId,
             isAuthenticated: true,
@@ -254,9 +270,7 @@ export async function POST(
   }
 }
 
-// ============================================
 // DELETE - Delete Comment
-// ============================================
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -266,7 +280,6 @@ export async function DELETE(
 
     const { slug } = await params;
 
-    // Get commentId from query params
     const { searchParams } = new URL(request.url);
     const commentId = searchParams.get("commentId");
 
@@ -283,9 +296,23 @@ export async function DELETE(
       );
     }
 
-    // Get user from token
-    const userToken = request.cookies.get("UserToken")?.value;
-    if (!userToken) {
+    // Get user from cookie (already verified by proxy)
+    const userToken = request.cookies.get("UserCookie")?.value;
+    let userId = null;
+    let decoded: any = {};
+
+    if (userToken) {
+      try {
+        decoded = JSON.parse(
+          Buffer.from(userToken.split(".")[1], "base64").toString()
+        );
+        userId = decoded._id;
+      } catch {
+        // Invalid token
+      }
+    }
+
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
@@ -298,25 +325,6 @@ export async function DELETE(
       );
     }
 
-    let decoded: any;
-    try {
-      decoded = jwt.verify(userToken, EnvSecrets.jwtSecret as string);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid token",
-          data: null,
-          err: "INVALID_TOKEN",
-          status: HTTP_STATUS.UNAUTHORIZED,
-        },
-        { status: HTTP_STATUS.UNAUTHORIZED }
-      );
-    }
-
-    const userId = decoded._id;
-
-    // Find ghazal
     const ghazal = await GhazalModel.findOne({ slug });
 
     if (!ghazal) {
@@ -332,7 +340,6 @@ export async function DELETE(
       );
     }
 
-    // Find comment index
     const commentIndex = ghazal.comments.findIndex(
       (c) => c._id.toString() === commentId
     );
@@ -351,8 +358,6 @@ export async function DELETE(
     }
 
     const comment = ghazal.comments[commentIndex];
-
-    // Check if user owns the comment OR is admin
     const isAdmin = decoded.role === "admin" || decoded.role === "super_admin";
     const isOwner = comment.user.toString() === userId;
 
@@ -369,11 +374,9 @@ export async function DELETE(
       );
     }
 
-    // Remove comment
     ghazal.comments.splice(commentIndex, 1);
     await ghazal.save();
 
-    // Check if user has any other comments
     const hasUserCommented = ghazal.comments.some(
       (c) => c.user.toString() === userId
     );
@@ -381,7 +384,7 @@ export async function DELETE(
     return NextResponse.json(
       {
         success: true,
-        message: "✅ Comment deleted successfully",
+        message: "Comment deleted successfully",
         data: {
           deletedCommentId: commentId,
           status: {

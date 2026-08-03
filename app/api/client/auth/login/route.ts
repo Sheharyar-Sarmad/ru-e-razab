@@ -4,7 +4,7 @@ import { NextResponse, NextRequest } from "next/server";
 import EnvSecrets from "@/config/env.secrets";
 import UserAccountModel from "@/models/auth/user.account.model";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
-import { compare } from "bcrypt";
+import { compare } from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { randomBytes } from "crypto";
 

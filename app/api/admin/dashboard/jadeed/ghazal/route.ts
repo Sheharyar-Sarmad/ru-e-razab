@@ -35,9 +35,20 @@ export async function POST(request: NextRequest) {
     const contentRaw = formData.get("content") as string;
     const categoriesRaw = formData.get("categories") as string;
     const coverImageFile = formData.get("coverImage") as File;
+    const metaTitle = formData.get("metaTitle") as string;
+    const metaDescription = formData.get("metaDescription") as string;
+    const linksRaw = formData.get("links") as string; 
 
     // Log for debugging
-    console.log("Received fields:", { takhallus, contentRaw, categoriesRaw, hasFile: !!coverImageFile });
+    console.log("Received fields:", { 
+      takhallus, 
+      contentRaw, 
+      categoriesRaw, 
+      hasFile: !!coverImageFile, 
+      metaTitle, 
+      metaDescription,
+      linksRaw 
+    });
 
     // Validate required fields
     if (!takhallus) {
@@ -171,6 +182,156 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate metaTitle if provided
+    if (metaTitle && metaTitle.length > 60) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Meta title cannot exceed 60 characters",
+          data: null,
+          err: "META_TITLE_TOO_LONG",
+          status: HTTP_STATUS.BAD_REQUEST,
+        },
+        { status: HTTP_STATUS.BAD_REQUEST }
+      );
+    }
+
+    // Validate metaDescription if provided
+    if (metaDescription && metaDescription.length > 160) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Meta description cannot exceed 160 characters",
+          data: null,
+          err: "META_DESCRIPTION_TOO_LONG",
+          status: HTTP_STATUS.BAD_REQUEST,
+        },
+        { status: HTTP_STATUS.BAD_REQUEST }
+      );
+    }
+
+    // PARSE AND VALIDATE LINKS
+    let links: any[] = [];
+    if (linksRaw) {
+      try {
+        links = JSON.parse(linksRaw);
+        
+        // Validate links is an array
+        if (!Array.isArray(links)) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Links must be an array",
+              data: null,
+              err: "INVALID_LINKS_FORMAT",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+
+        // Validate max 5 links
+        if (links.length > 5) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Maximum 5 links allowed",
+              data: null,
+              err: "LINKS_LIMIT_EXCEEDED",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+
+        // Validate each link
+        const linkTypes = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
+        const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+
+        for (const link of links) {
+          // Check required fields
+          if (!link.title || !link.url) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Each link must have a title and URL",
+                data: null,
+                err: "INVALID_LINK_MISSING_FIELDS",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          // Validate title length
+          if (link.title.length < 1 || link.title.length > 100) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Link title must be between 1 and 100 characters",
+                data: null,
+                err: "INVALID_LINK_TITLE",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          // Validate URL
+          if (link.url.length > 500) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Link URL cannot exceed 500 characters",
+                data: null,
+                err: "INVALID_LINK_URL_LENGTH",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          if (!urlRegex.test(link.url)) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Please enter a valid URL for: " + link.title,
+                data: null,
+                err: "INVALID_LINK_URL",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          // Validate type if provided
+          if (link.type && !linkTypes.includes(link.type)) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: `Invalid link type. Allowed: ${linkTypes.join(", ")}`,
+                data: null,
+                err: "INVALID_LINK_TYPE",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Invalid JSON format for links",
+            data: null,
+            err: "INVALID_LINKS_JSON",
+            status: HTTP_STATUS.BAD_REQUEST,
+          },
+          { status: HTTP_STATUS.BAD_REQUEST }
+        );
+      }
+    }
+
     // Validate image file size and type
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
     const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif"];
@@ -256,6 +417,9 @@ export async function POST(request: NextRequest) {
       content,
       category: categories,
       coverImage: coverImageUrl,
+      metaTitle: metaTitle || undefined,
+      metaDescription: metaDescription || undefined,
+      links: links || [], 
       likes: [],
       comments: [],
     });
@@ -274,6 +438,9 @@ export async function POST(request: NextRequest) {
             content: ghazal.content,
             category: ghazal.category,
             coverImage: ghazal.coverImage,
+            metaTitle: ghazal.metaTitle,
+            metaDescription: ghazal.metaDescription,
+            links: ghazal.links, 
             likes: ghazal.likes,
             comments: ghazal.comments,
             createdAt: ghazal.createdAt,

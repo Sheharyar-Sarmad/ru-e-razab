@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import EnvSecrets from "@/config/env.secrets";
 
-export function VerifyAdmin(request: NextRequest) {
+export function VerifyUser(request: NextRequest) {
   const userCookie = request.cookies.get("UserCookie")?.value;
 
   if (!userCookie) {

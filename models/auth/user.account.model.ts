@@ -1,3 +1,4 @@
+// models/auth/user.account.model.ts
 import { Schema, models, model } from "mongoose";
 
 interface UserAccount {
@@ -56,15 +57,14 @@ const UserAccountSchema = new Schema<UserAccount>(
       required: [true, "Password is required"],
       minlength: [8, "Password must be at least 8 characters"],
       maxlength: [100, "Password cannot exceed 100 characters"],
-      select: false, // Exclude password from query results by default
-
+      select: false,
       validate: {
         validator: function (password: string) {
           return (
-            /[A-Z]/.test(password) && // uppercase
-            /[a-z]/.test(password) && // lowercase
-            /[0-9]/.test(password) && // number
-            /[^A-Za-z0-9]/.test(password) // special character
+            /[A-Z]/.test(password) &&
+            /[a-z]/.test(password) &&
+            /[0-9]/.test(password) &&
+            /[^A-Za-z0-9]/.test(password)
           );
         },
         message:
@@ -76,10 +76,10 @@ const UserAccountSchema = new Schema<UserAccount>(
       type: String,
       required: false,
       unique: true,
-      sparse: true, // Important: Allows multiple null/undefined values
+      sparse: true,
       trim: true,
       match: [
-        /^(\+\d{1,3}[- ]?)?\d{10,14}$/, // More flexible: +92 300 1234567 or 03001234567
+        /^(\+\d{1,3}[- ]?)?\d{10,14}$/,
         "Please enter a valid phone number",
       ],
     },
@@ -99,17 +99,21 @@ const UserAccountSchema = new Schema<UserAccount>(
   },
   {
     timestamps: true,
-  },
+  }
 );
 
-// Indexes for faster queries on unique fields
+// ============================================
+// ✅ KEPT - ESSENTIAL INDEXES
+// ============================================
+
+// 1. Unique indexes (required)
 UserAccountSchema.index(
   { accountname: 1 },
   {
     unique: true,
     name: "idx_accountname_unique",
     background: true,
-  },
+  }
 );
 
 UserAccountSchema.index(
@@ -118,7 +122,7 @@ UserAccountSchema.index(
     unique: true,
     name: "idx_email_unique",
     background: true,
-  },
+  }
 );
 
 UserAccountSchema.index(
@@ -127,63 +131,56 @@ UserAccountSchema.index(
     unique: true,
     name: "idx_phonenumber_unique",
     background: true,
-  },
+  }
 );
 
-UserAccountSchema.index(
-  { accountname: 1, email: 1, phonenumber: 1 },
-  {
-    name: "login_compound_idx",
-    background: true,
-  },
-);
-
-// 2. Index for sorting by createdAt (for admin listing)
+// 2. For counting users (total, new this week)
 UserAccountSchema.index(
   { createdAt: -1 },
   {
     name: "created_at_desc_idx",
     background: true,
-  },
+  }
 );
 
-// 3. Index for sorting by updatedAt
+// 3. For active users (users with comments or likes)
 UserAccountSchema.index(
-  { updatedAt: -1 },
-  {
-    name: "updated_at_desc_idx",
+  { "comments": 1 },
+  { 
+    name: "user_comments_idx",
     background: true,
-  },
+    sparse: true 
+  }
 );
 
-// 4. Text index for search functionality (optional but recommended)
 UserAccountSchema.index(
-  {
-    accountname: "text",
-    email: "text",
-    firstname: "text",
-    lastname: "text",
-  },
-  {
-    name: "user_search_text_idx",
+  { "likes": 1 },
+  { 
+    name: "user_likes_idx",
     background: true,
-    weights: {
-      accountname: 10,
-      email: 8,
-      firstname: 5,
-      lastname: 5,
-    },
-  },
+    sparse: true 
+  }
 );
 
-// 5. Compound index for duplicate checking during signup
+// 4. Login compound index
 UserAccountSchema.index(
   { accountname: 1, email: 1, phonenumber: 1 },
   {
-    name: "duplicate_check_idx",
+    name: "login_compound_idx",
     background: true,
-  },
+  }
 );
+
+// ============================================
+// ❌ REMOVED - UNNECESSARY INDEXES
+// ============================================
+
+// Removed: user_search_compound_idx
+// Removed: search_pagination_idx
+// Removed: or_search_idx
+// Removed: updated_at_desc_idx
+// Removed: duplicate_check_idx
+// Removed: user_active_created_idx
 
 const UserAccountModel =
   models.UserAccount || model<UserAccount>("UserAccount", UserAccountSchema);

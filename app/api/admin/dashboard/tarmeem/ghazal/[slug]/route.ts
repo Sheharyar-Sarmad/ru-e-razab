@@ -91,6 +91,9 @@ export async function PATCH(
       const contentRaw = formData.get("content") as string;
       const categoriesRaw = formData.get("categories") as string;
       const coverImageFile = formData.get("coverImage") as File | null;
+      const metaTitle = formData.get("metaTitle") as string;
+      const metaDescription = formData.get("metaDescription") as string;
+      const linksRaw = formData.get("links") as string; 
 
       if (takhallus) updateData.takhallus = takhallus;
       
@@ -125,6 +128,163 @@ export async function PATCH(
             },
             { status: HTTP_STATUS.BAD_REQUEST }
           );
+        }
+      }
+
+      // Handle metaTitle
+      if (metaTitle !== null && metaTitle !== undefined) {
+        if (metaTitle.length > 60) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Meta title cannot exceed 60 characters",
+              data: null,
+              err: "META_TITLE_TOO_LONG",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+        updateData.metaTitle = metaTitle.trim() || undefined;
+      }
+
+      // Handle metaDescription
+      if (metaDescription !== null && metaDescription !== undefined) {
+        if (metaDescription.length > 160) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Meta description cannot exceed 160 characters",
+              data: null,
+              err: "META_DESCRIPTION_TOO_LONG",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+        updateData.metaDescription = metaDescription.trim() || undefined;
+      }
+
+      if (linksRaw !== null && linksRaw !== undefined) {
+        if (linksRaw === "") {
+          // Empty string means clear all links
+          updateData.links = [];
+        } else {
+          try {
+            const links = JSON.parse(linksRaw);
+            
+            // Validate links is an array
+            if (!Array.isArray(links)) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Links must be an array",
+                  data: null,
+                  err: "INVALID_LINKS_FORMAT",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            // Validate max 5 links
+            if (links.length > 5) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Maximum 5 links allowed",
+                  data: null,
+                  err: "LINKS_LIMIT_EXCEEDED",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            // Validate each link
+            const linkTypes = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
+            const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+
+            for (const link of links) {
+              if (!link.title || !link.url) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    message: "Each link must have a title and URL",
+                    data: null,
+                    err: "INVALID_LINK_MISSING_FIELDS",
+                    status: HTTP_STATUS.BAD_REQUEST,
+                  },
+                  { status: HTTP_STATUS.BAD_REQUEST }
+                );
+              }
+
+              if (link.title.length < 1 || link.title.length > 100) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    message: "Link title must be between 1 and 100 characters",
+                    data: null,
+                    err: "INVALID_LINK_TITLE",
+                    status: HTTP_STATUS.BAD_REQUEST,
+                  },
+                  { status: HTTP_STATUS.BAD_REQUEST }
+                );
+              }
+
+              if (link.url.length > 500) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    message: "Link URL cannot exceed 500 characters",
+                    data: null,
+                    err: "INVALID_LINK_URL_LENGTH",
+                    status: HTTP_STATUS.BAD_REQUEST,
+                  },
+                  { status: HTTP_STATUS.BAD_REQUEST }
+                );
+              }
+
+              if (!urlRegex.test(link.url)) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    message: "Please enter a valid URL for: " + link.title,
+                    data: null,
+                    err: "INVALID_LINK_URL",
+                    status: HTTP_STATUS.BAD_REQUEST,
+                  },
+                  { status: HTTP_STATUS.BAD_REQUEST }
+                );
+              }
+
+              if (link.type && !linkTypes.includes(link.type)) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    message: `Invalid link type. Allowed: ${linkTypes.join(", ")}`,
+                    data: null,
+                    err: "INVALID_LINK_TYPE",
+                    status: HTTP_STATUS.BAD_REQUEST,
+                  },
+                  { status: HTTP_STATUS.BAD_REQUEST }
+                );
+              }
+            }
+
+            updateData.links = links;
+          } catch (error) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Invalid JSON format for links",
+                data: null,
+                err: "INVALID_LINKS_JSON",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
         }
       }
 
@@ -190,6 +350,133 @@ export async function PATCH(
         const body = await request.json();
         const { _id, slug: _, createdAt, updatedAt, __v, ...cleanData } = body;
         updateData = cleanData;
+
+        // Validate metaTitle if provided
+        if (updateData.metaTitle && updateData.metaTitle.length > 60) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Meta title cannot exceed 60 characters",
+              data: null,
+              err: "META_TITLE_TOO_LONG",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+
+        // Validate metaDescription if provided
+        if (updateData.metaDescription && updateData.metaDescription.length > 160) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Meta description cannot exceed 160 characters",
+              data: null,
+              err: "META_DESCRIPTION_TOO_LONG",
+              status: HTTP_STATUS.BAD_REQUEST,
+            },
+            { status: HTTP_STATUS.BAD_REQUEST }
+          );
+        }
+
+        // Validate links if provided
+        if (updateData.links !== undefined) {
+          if (!Array.isArray(updateData.links)) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Links must be an array",
+                data: null,
+                err: "INVALID_LINKS_FORMAT",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          if (updateData.links.length > 5) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: "Maximum 5 links allowed",
+                data: null,
+                err: "LINKS_LIMIT_EXCEEDED",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+
+          const linkTypes = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
+          const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+
+          for (const link of updateData.links) {
+            if (!link.title || !link.url) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Each link must have a title and URL",
+                  data: null,
+                  err: "INVALID_LINK_MISSING_FIELDS",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            if (link.title.length < 1 || link.title.length > 100) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Link title must be between 1 and 100 characters",
+                  data: null,
+                  err: "INVALID_LINK_TITLE",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            if (link.url.length > 500) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Link URL cannot exceed 500 characters",
+                  data: null,
+                  err: "INVALID_LINK_URL_LENGTH",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            if (!urlRegex.test(link.url)) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: "Please enter a valid URL for: " + link.title,
+                  data: null,
+                  err: "INVALID_LINK_URL",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+
+            if (link.type && !linkTypes.includes(link.type)) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: `Invalid link type. Allowed: ${linkTypes.join(", ")}`,
+                  data: null,
+                  err: "INVALID_LINK_TYPE",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+          }
+        }
       } catch (error) {
         return NextResponse.json(
           {
@@ -225,7 +512,7 @@ export async function PATCH(
       {
         new: true,
         runValidators: true,
-        select: "takhallus slug content category coverImage likes comments createdAt updatedAt"
+        select: "takhallus slug content category coverImage metaTitle metaDescription links likes comments createdAt updatedAt"
       }
     );
 
@@ -237,7 +524,6 @@ export async function PATCH(
         try {
           const result = await deleteFromCloudinary(oldPublicId);
           oldImageDeleted = result;
-          console.log(`Old image ${result ? '✅' : '❌'} deleted: ${oldPublicId}`);
         } catch (error) {
           console.error("Failed to delete old image:", error);
         }

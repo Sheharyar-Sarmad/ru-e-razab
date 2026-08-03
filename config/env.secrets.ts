@@ -9,6 +9,7 @@ const EnvSecrets = {
     cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
     cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET, 
+    groqApiKey: process.env.GROQ_API_KEY
 };
 
 const requiredEnvVariables: {
@@ -24,6 +25,7 @@ const requiredEnvVariables: {
     cloudinaryCloudName: "string",
     cloudinaryApiKey: "string",
     cloudinaryApiSecret: "string",  
+    groqApiKey: "string"
 };
 
 for (const variable of Object.keys(
