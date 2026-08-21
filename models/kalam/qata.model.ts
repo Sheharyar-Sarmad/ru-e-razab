@@ -17,17 +17,43 @@ interface Link {
   type?: string;
 }
 
+interface MediaFile {
+  url: string;
+  type: 'image' | 'video' | 'audio' | 'document';
+  mimeType: string;
+  size: number;
+  filename: string;
+  publicId?: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  alt?: string;
+  metadata?: Record<string, any>;
+}
+
 interface Qata {
   takhallus: string;
   slug: string;
   content: Shair[];
   category: string[];
   coverImage: string;
+  coverImageMetadata?: {
+    publicId: string;
+    width?: number;
+    height?: number;
+    format?: string;
+    size?: number;
+  };
+  media: MediaFile[];
   metaTitle?: string;
   metaDescription?: string;
   links?: Link[];
   likes: Types.ObjectId[];
   comments: Comment[];
+  featured?: boolean;
+  views?: number;
+  publishedAt?: Date;
 }
 
 const LinkSchema = new Schema<Link>(
@@ -107,6 +133,109 @@ const ShairSchema = new Schema<Shair>(
   }
 );
 
+const MediaSchema = new Schema<MediaFile>(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    type: {
+      type: String,
+      required: true,
+      enum: ['image', 'video', 'audio', 'document'],
+    },
+    mimeType: {
+      type: String,
+      required: true,
+    },
+    size: {
+      type: Number,
+      required: true,
+      min: [0, "File size must be positive"],
+    },
+    filename: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: [255, "Filename cannot exceed 255 characters"],
+    },
+    publicId: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    thumbnail: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    duration: {
+      type: Number,
+      required: false,
+      min: [0, "Duration cannot be negative"],
+    },
+    width: {
+      type: Number,
+      required: false,
+      min: [0, "Width cannot be negative"],
+    },
+    height: {
+      type: Number,
+      required: false,
+      min: [0, "Height cannot be negative"],
+    },
+    alt: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: [200, "Alt text cannot exceed 200 characters"],
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      required: false,
+      default: {},
+    },
+  },
+  {
+    _id: true,
+    timestamps: true,
+  }
+);
+
+const CoverImageMetadataSchema = new Schema(
+  {
+    publicId: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    width: {
+      type: Number,
+      required: false,
+      min: [0, "Width cannot be negative"],
+    },
+    height: {
+      type: Number,
+      required: false,
+      min: [0, "Height cannot be negative"],
+    },
+    format: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    size: {
+      type: Number,
+      required: false,
+      min: [0, "Size cannot be negative"],
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
 const QataSchema = new Schema<Qata>(
   {
     takhallus: {
@@ -148,6 +277,24 @@ const QataSchema = new Schema<Qata>(
       type: String,
       required: true,
       trim: true,
+    },
+
+    coverImageMetadata: {
+      type: CoverImageMetadataSchema,
+      required: false,
+      default: {},
+    },
+
+    media: {
+      type: [MediaSchema],
+      required: false,
+      default: [],
+      validate: {
+        validator: function(media: MediaFile[]) {
+          return media.length <= 20;
+        },
+        message: "A Qata can have maximum 20 media files",
+      },
     },
 
     metaTitle: {
@@ -199,11 +346,30 @@ const QataSchema = new Schema<Qata>(
       type: [CommentSchema],
       default: [],
     },
+
+    featured: {
+      type: Boolean,
+      default: false,
+    },
+
+    views: {
+      type: Number,
+      default: 0,
+      min: [0, "Views cannot be negative"],
+    },
+
+    publishedAt: {
+      type: Date,
+      required: false,
+      default: Date.now,
+    },
   },
   {
     timestamps: true,
   }
 );
+
+// INDEXES 
 
 QataSchema.index(
   { slug: 1 },
@@ -218,6 +384,41 @@ QataSchema.index(
 QataSchema.index(
   { createdAt: -1 },
   { name: "created_at_desc_idx" }
+);
+
+QataSchema.index(
+  { category: 1, createdAt: -1 },
+  { name: "category_created_at_idx" }
+);
+
+QataSchema.index(
+  { likes: 1, createdAt: -1 },
+  { name: "likes_created_at_idx" }
+);
+
+QataSchema.index(
+  { featured: 1, createdAt: -1 },
+  { name: "featured_created_at_idx" }
+);
+
+QataSchema.index(
+  { views: -1 },
+  { name: "views_desc_idx" }
+);
+
+QataSchema.index(
+  { publishedAt: -1 },
+  { name: "published_at_desc_idx" }
+);
+
+QataSchema.index(
+  { "media.type": 1 },
+  { name: "media_type_idx", background: true }
+);
+
+QataSchema.index(
+  { "media.createdAt": -1 },
+  { name: "media_created_at_idx", background: true }
 );
 
 QataSchema.index(
@@ -239,6 +440,8 @@ QataSchema.index(
   }
 );
 
+// MIDDLEWARE 
+
 QataSchema.pre("validate", function () {
   if (this.content?.[0]?.lines?.[0]) {
     this.slug = this.content[0].lines[0]
@@ -259,7 +462,38 @@ QataSchema.pre("validate", function () {
     const text = lines.join(" ").slice(0, 150);
     this.metaDescription = `${text}... Read the complete qata by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
+
+  // Set publishedAt if not set
+  if (!this.publishedAt) {
+    this.publishedAt = new Date();
+  }
 });
+
+// STATIC METHODS 
+
+QataSchema.statics.findBySlug = function(slug: string) {
+  return this.findOne({ slug });
+};
+
+QataSchema.statics.findFeatured = function(limit: number = 10) {
+  return this.find({ featured: true })
+    .sort({ createdAt: -1 })
+    .limit(limit);
+};
+
+QataSchema.statics.incrementViews = function(id: Types.ObjectId) {
+  return this.findByIdAndUpdate(
+    id,
+    { $inc: { views: 1 } },
+    { new: true }
+  );
+};
+
+QataSchema.index(
+  { "comments.createdAt": -1 },
+  { name: "comments_created_at_desc_idx", background: true }
+);
+
 
 const QataModel = models.Qata || model<Qata>("Qata", QataSchema);
 

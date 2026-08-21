@@ -1,6 +1,8 @@
 // models/kalam/ghazals.model.ts
 import { Schema, models, model, Types } from "mongoose";
 
+// INTERFACES
+
 interface Comment {
   user: Types.ObjectId;
   content: string;
@@ -17,18 +19,46 @@ interface Link {
   type?: string;
 }
 
+interface MediaFile {
+  url: string;
+  type: 'image' | 'video' | 'audio' | 'document';
+  mimeType: string;
+  size: number;
+  filename: string;
+  publicId?: string;
+  thumbnail?: string; // For video/audio thumbnails
+  duration?: number; // For video/audio duration in seconds
+  width?: number; // For images/videos
+  height?: number; // For images/videos
+  alt?: string;
+  metadata?: Record<string, any>;
+}
+
 interface Ghazal {
   takhallus: string;
   slug: string;
   content: Shair[];
   category: string[];
   coverImage: string;
+  coverImageMetadata?: {
+    publicId: string;
+    width?: number;
+    height?: number;
+    format?: string;
+    size?: number;
+  };
+  media: MediaFile[];
   metaTitle?: string;
   metaDescription?: string;
   links?: Link[];
   likes: Types.ObjectId[];
   comments: Comment[];
+  featured?: boolean;
+  views?: number;
+  publishedAt?: Date;
 }
+
+// SUB-SCHEMAS
 
 const LinkSchema = new Schema<Link>(
   {
@@ -70,7 +100,6 @@ const CommentSchema = new Schema<Comment>(
       ref: "UserAccount",
       required: true,
     },
-
     content: {
       type: String,
       required: true,
@@ -89,16 +118,12 @@ const ShairSchema = new Schema<Shair>(
     lines: {
       type: [String],
       required: true,
-
-      set: (lines: string[]) =>
-        lines.map((line) => line.trim()),
-
+      set: (lines: string[]) => lines.map((line) => line.trim()),
       validate: [
         {
           validator: (lines: string[]) => lines.length === 2,
           message: "Each shair must contain exactly 2 lines",
         },
-
         {
           validator: (lines: string[]) =>
             lines.every(
@@ -106,7 +131,6 @@ const ShairSchema = new Schema<Shair>(
                 line.length >= 2 &&
                 line.length <= 300,
             ),
-
           message:
             "Each line must be between 2 and 300 characters",
         },
@@ -117,6 +141,111 @@ const ShairSchema = new Schema<Shair>(
     _id: false,
   }
 );
+
+const MediaSchema = new Schema<MediaFile>(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    type: {
+      type: String,
+      required: true,
+      enum: ['image', 'video', 'audio', 'document'],
+    },
+    mimeType: {
+      type: String,
+      required: true,
+    },
+    size: {
+      type: Number,
+      required: true,
+      min: [0, "File size must be positive"],
+    },
+    filename: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: [255, "Filename cannot exceed 255 characters"],
+    },
+    publicId: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    thumbnail: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    duration: {
+      type: Number,
+      required: false,
+      min: [0, "Duration cannot be negative"],
+    },
+    width: {
+      type: Number,
+      required: false,
+      min: [0, "Width cannot be negative"],
+    },
+    height: {
+      type: Number,
+      required: false,
+      min: [0, "Height cannot be negative"],
+    },
+    alt: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: [200, "Alt text cannot exceed 200 characters"],
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      required: false,
+      default: {},
+    },
+  },
+  {
+    _id: true,
+    timestamps: true, // Track when each media was uploaded
+  }
+);
+
+const CoverImageMetadataSchema = new Schema(
+  {
+    publicId: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    width: {
+      type: Number,
+      required: false,
+      min: [0, "Width cannot be negative"],
+    },
+    height: {
+      type: Number,
+      required: false,
+      min: [0, "Height cannot be negative"],
+    },
+    format: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    size: {
+      type: Number,
+      required: false,
+      min: [0, "Size cannot be negative"],
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
+// MAIN SCHEMA 
 
 const GhazalSchema = new Schema<Ghazal>(
   {
@@ -139,12 +268,10 @@ const GhazalSchema = new Schema<Ghazal>(
     content: {
       type: [ShairSchema],
       required: true,
-
       validate: {
         validator: (shairs: Shair[]) =>
           shairs.length >= 1 &&
           shairs.length <= 10,
-
         message:
           "A Ghazal must contain between 1 and 10 shairs",
       },
@@ -153,12 +280,10 @@ const GhazalSchema = new Schema<Ghazal>(
     category: {
       type: [String],
       required: true,
-
       validate: {
         validator: (categories: string[]) =>
           categories.length >= 1 &&
           categories.length <= 10,
-
         message:
           "A Ghazal must have between 1 and 10 categories",
       },
@@ -168,6 +293,24 @@ const GhazalSchema = new Schema<Ghazal>(
       type: String,
       required: true,
       trim: true,
+    },
+
+    coverImageMetadata: {
+      type: CoverImageMetadataSchema,
+      required: false,
+      default: {},
+    },
+
+    media: {
+      type: [MediaSchema],
+      required: false,
+      default: [],
+      validate: {
+        validator: function(media: MediaFile[]) {
+          return media.length <= 20; // Max 20 media files
+        },
+        message: "A Ghazal can have maximum 20 media files",
+      },
     },
 
     metaTitle: {
@@ -192,7 +335,6 @@ const GhazalSchema = new Schema<Ghazal>(
         return `${text}... Read the complete ghazal by ${this.takhallus || "the poet"}.`.slice(0, 160);
       },
     },
-
 
     links: {
       type: [LinkSchema],
@@ -220,11 +362,35 @@ const GhazalSchema = new Schema<Ghazal>(
       type: [CommentSchema],
       default: [],
     },
+
+    featured: {
+      type: Boolean,
+      default: false,
+    },
+
+    views: {
+      type: Number,
+      default: 0,
+      min: [0, "Views cannot be negative"],
+    },
+
+    publishedAt: {
+      type: Date,
+      required: false,
+      default: Date.now,
+    },
   },
 
   {
     timestamps: true,
   }
+);
+
+// INDEXES 
+
+GhazalSchema.index(
+  { "media.type": 1 },
+  { name: "media_type_idx", background: true }
 );
 
 GhazalSchema.index(
@@ -310,6 +476,33 @@ GhazalSchema.index(
   }
 );
 
+// New indexes for media
+GhazalSchema.index(
+  { "media.type": 1 },
+  { name: "media_type_idx", background: true }
+);
+
+GhazalSchema.index(
+  { "media.createdAt": -1 },
+  { name: "media_created_at_idx", background: true }
+);
+
+GhazalSchema.index(
+  { featured: 1, createdAt: -1 },
+  { name: "featured_created_at_idx", background: true }
+);
+
+GhazalSchema.index(
+  { views: -1 },
+  { name: "views_desc_idx", background: true }
+);
+
+GhazalSchema.index(
+  { publishedAt: -1 },
+  { name: "published_at_desc_idx", background: true }
+);
+
+// Text search index
 GhazalSchema.index(
   {
     takhallus: "text",
@@ -329,7 +522,10 @@ GhazalSchema.index(
   }
 );
 
+// MIDDLEWARE 
+
 GhazalSchema.pre("validate", function () {
+  // Generate slug from first line
   if (this.content?.[0]?.lines?.[0]) {
     this.slug = this.content[0].lines[0]
       .trim()
@@ -339,17 +535,46 @@ GhazalSchema.pre("validate", function () {
       .replace(/-+/g, "-");
   }
 
+  // Auto-generate meta title if not provided
   if (!this.metaTitle && this.content?.[0]?.lines?.[0]) {
     const firstLine = this.content[0].lines[0];
     this.metaTitle = `${firstLine} - ${this.takhallus || "Ghazal"}`.slice(0, 60);
   }
 
+  // Auto-generate meta description if not provided
   if (!this.metaDescription && this.content) {
     const lines = this.content.slice(0, 2).flatMap((s: any) => s.lines);
     const text = lines.join(" ").slice(0, 150);
     this.metaDescription = `${text}... Read the complete ghazal by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
+
+  // Set publishedAt if not set
+  if (!this.publishedAt) {
+    this.publishedAt = new Date();
+  }
 });
+
+// STATIC METHODS 
+
+GhazalSchema.statics.findBySlug = function(slug: string) {
+  return this.findOne({ slug });
+};
+
+GhazalSchema.statics.findFeatured = function(limit: number = 10) {
+  return this.find({ featured: true })
+    .sort({ createdAt: -1 })
+    .limit(limit);
+};
+
+GhazalSchema.statics.incrementViews = function(id: Types.ObjectId) {
+  return this.findByIdAndUpdate(
+    id,
+    { $inc: { views: 1 } },
+    { new: true }
+  );
+};
+
+// MODEL 
 
 const GhazalModel =
   models.Ghazal ||

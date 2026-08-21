@@ -6,7 +6,6 @@ import QataModel from "@/models/kalam/qata.model";
 import { NextResponse, NextRequest } from "next/server";
 import cloudinary from "@/config/cloudinary.config";
 
-// HELPER: Delete image from Cloudinary
 const deleteFromCloudinary = async (publicId: string): Promise<boolean> => {
   try {
     const result = await cloudinary.uploader.destroy(publicId);
@@ -17,23 +16,19 @@ const deleteFromCloudinary = async (publicId: string): Promise<boolean> => {
   }
 };
 
-// HELPER: Extract public ID from Cloudinary URL
 const extractPublicId = (url: string): string | null => {
   try {
     const parts = url.split("/");
     const uploadIndex = parts.indexOf("upload");
     if (uploadIndex === -1) return null;
-
     const publicIdParts = parts.slice(uploadIndex + 2);
     const publicId = publicIdParts.join("/").split(".")[0];
     return publicId || null;
-  } catch (error) {
-    console.error("Error extracting public ID:", error);
+  } catch {
     return null;
   }
 };
 
-// DELETE - Delete Qata by Slug (Hazf - حذف)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -41,12 +36,9 @@ export async function DELETE(
   const startTime = performance.now();
 
   try {
-    // Connect to database
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     const { slug } = await params;
-
-    // Validate slug
     if (!slug) {
       return NextResponse.json(
         {
@@ -60,14 +52,13 @@ export async function DELETE(
       );
     }
 
-    // STEP 1: Find qata to get cover image
+    // Find the qata to get all media URLs
     const qata = await QataModel.findOne({ slug });
-
     if (!qata) {
       return NextResponse.json(
         {
           success: false,
-          message: "Qata not found (قطعہ نہیں ملا)",
+          message: "Qata not found",
           data: null,
           err: "QATA_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
@@ -76,29 +67,36 @@ export async function DELETE(
       );
     }
 
-    // Store cover image URL and public ID
-    const coverImageUrl = qata.coverImage;
-    let publicId: string | null = null;
+    // Collect all public IDs to delete (cover + media)
+    const publicIdsToDelete: string[] = [];
 
-    // Extract public ID from the URL
-    if (coverImageUrl) {
-      publicId = extractPublicId(coverImageUrl);
-      console.log("📸 Extracted public ID:", publicId);
+    // Cover image
+    if (qata.coverImage) {
+      const publicId = extractPublicId(qata.coverImage);
+      if (publicId) publicIdsToDelete.push(publicId);
     }
 
-    // STEP 2: Delete qata from database
+    // Media files
+    if (qata.media && Array.isArray(qata.media)) {
+      for (const media of qata.media) {
+        if (media.publicId) {
+          publicIdsToDelete.push(media.publicId);
+        }
+      }
+    }
+
+    // Delete the document
     await QataModel.findOneAndDelete({ slug });
 
-    // STEP 3: Delete cover image from Cloudinary
-    let imageDeleted = false;
-
-    if (publicId) {
+    // Delete all files from Cloudinary
+    const deletionResults = [];
+    for (const publicId of publicIdsToDelete) {
       try {
-        imageDeleted = await deleteFromCloudinary(publicId);
-        console.log(`📸 Image ${imageDeleted ? '✅' : '❌'} deleted: ${publicId}`);
+        const deleted = await deleteFromCloudinary(publicId);
+        deletionResults.push({ publicId, deleted });
       } catch (error) {
-        console.error("Failed to delete cover image:", error);
-        // Don't fail the request if image deletion fails
+        console.error(`Failed to delete ${publicId}:`, error);
+        deletionResults.push({ publicId, deleted: false });
       }
     }
 
@@ -107,20 +105,14 @@ export async function DELETE(
     return NextResponse.json(
       {
         success: true,
-        message: "Qata deleted successfully (قطعہ حذف ہوگیا)",
+        message: "Qata and associated media deleted successfully",
         data: {
           deletedQata: {
             id: qata._id,
             takhallus: qata.takhallus,
             slug: qata.slug,
-            content: qata.content,
-            category: qata.category,
           },
-          image: {
-            url: coverImageUrl,
-            publicId: publicId,
-            deleted: imageDeleted,
-          },
+          deletionResults,
           responseTime: `${responseTime.toFixed(2)}ms`,
         },
         err: null,
@@ -135,11 +127,11 @@ export async function DELETE(
       }
     );
   } catch (error) {
-    console.error("Delete Qata Error (Hazf):", error);
+    console.error("Delete Qata Error:", error);
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to delete qata (قطعہ حذف نہیں ہو سکا)",
+        message: "Failed to delete qata",
         data: null,
         err: "DELETE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,

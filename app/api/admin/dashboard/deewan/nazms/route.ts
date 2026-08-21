@@ -9,7 +9,6 @@ import NazmModel from "@/models/kalam/nazm.model";
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60 * 1000; // 1 minute
 
-// HELPER: Get cache key
 function getCacheKey(
   page: number,
   limit: number,
@@ -22,36 +21,32 @@ function getCacheKey(
   return `nazms:${page}:${limit}:${search}:${category}:${takhallus}:${sortBy}:${sortOrder}`;
 }
 
-// GET - All Nazms with Pagination, Search & Filtering
 export async function GET(request: NextRequest) {
   const startTime = performance.now();
 
   try {
-    // Connect to database
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     const { searchParams } = new URL(request.url);
 
-    // 📄 PAGINATION
+    // Pagination 
     const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "9"); // 9 per page
+    const limit = parseInt(searchParams.get("limit") || "9");
     const skip = (page - 1) * limit;
 
-    // 🔍 SEARCH & FILTERS
+    // Filters
     const search = searchParams.get("search") || "";
     const category = searchParams.get("category") || "";
     const takhallus = searchParams.get("takhallus") || "";
 
-    // 📊 SORTING
+    // Sorting 
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
-    // CHECK CACHE
+    // Cache check 
     const cacheKey = getCacheKey(page, limit, search, category, takhallus, sortBy, sortOrder);
     const cached = cache.get(cacheKey);
-
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
       return NextResponse.json(cached.data, {
         status: HTTP_STATUS.OK,
         headers: {
@@ -61,20 +56,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // BUILD FILTER
+    // Build filter 
     let filter: any = {};
 
-    // Search filter
+    // Use $text search if a search term is provided
     if (search) {
-      filter.$or = [
-        { unwan: { $regex: search, $options: "i" } },
-        { takhallus: { $regex: search, $options: "i" } },
-        { "content.shairs.lines": { $regex: search, $options: "i" } },
-        { metaTitle: { $regex: search, $options: "i" } },
-        { metaDescription: { $regex: search, $options: "i" } },
-      ];
+      filter.$text = { $search: search };
     }
 
     // Category filter
@@ -82,19 +69,33 @@ export async function GET(request: NextRequest) {
       filter.category = { $in: [category] };
     }
 
-    // Takhallus filter
+    // Takhallus exact match (case‑insensitive) – uses the collation index
     if (takhallus) {
-      filter.takhallus = { $regex: takhallus, $options: "i" };
+      filter.takhallus = { $regex: `^${takhallus}$`, $options: "i" };
     }
 
-    // BUILD SORT
-    const sort: any = {};
-    sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+    // Build sort 
+    let sort: any = {};
+    if (search) {
+      // When using $text, sort by relevance score
+      sort = { score: { $meta: "textScore" } };
+    } else {
+      sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+    }
 
-    // EXECUTE QUERY
+    // Execute query 
+    const query = NazmModel.find(filter)
+      .select(
+        "unwan takhallus slug content category coverImage coverImageMetadata media metaTitle metaDescription links likes comments createdAt updatedAt featured views publishedAt"
+      );
+
+    // Include text score if searching
+    if (search) {
+      query.select({ score: { $meta: "textScore" } });
+    }
+
     const [nazms, total] = await Promise.all([
-      NazmModel.find(filter)
-        .select("unwan takhallus slug content category coverImage metaTitle metaDescription links likes comments createdAt updatedAt")
+      query
         .sort(sort)
         .skip(skip)
         .limit(limit)
@@ -103,7 +104,8 @@ export async function GET(request: NextRequest) {
       NazmModel.countDocuments(filter),
     ]);
 
-    // GET ALL CATEGORIES & POETS (for filters)
+    // Get distinct categories & poets (for filters) 
+    // Note: For production, consider caching these separately.
     const [allCategories, allPoets] = await Promise.all([
       NazmModel.distinct("category"),
       NazmModel.distinct("takhallus"),
@@ -111,13 +113,10 @@ export async function GET(request: NextRequest) {
 
     const responseTime = performance.now() - startTime;
     const totalPages = Math.ceil(total / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1;
 
-    // BUILD RESPONSE
     const responseData = {
       success: true,
-      message: "Nazms fetched successfully (نظمیں حاصل ہوگئیں)",
+      message: "Nazms fetched successfully",
       data: {
         nazms,
         pagination: {
@@ -125,10 +124,8 @@ export async function GET(request: NextRequest) {
           page,
           limit,
           totalPages,
-          hasNext,
-          hasPrev,
-          nextPage: hasNext ? page + 1 : null,
-          prevPage: hasPrev ? page - 1 : null,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
         },
         filters: {
           search: search || null,
@@ -149,11 +146,8 @@ export async function GET(request: NextRequest) {
       status: HTTP_STATUS.OK,
     };
 
-    // STORE IN CACHE
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
+    // Cache 
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
 
     return NextResponse.json(responseData, {
       status: HTTP_STATUS.OK,
@@ -168,7 +162,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch nazms (نظمیں حاصل نہیں ہو سکیں)",
+        message: "Failed to fetch nazms",
         data: null,
         err: "FETCH_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,

@@ -6,13 +6,201 @@ import ShairModel from "@/models/kalam/shair.model";
 import { NextResponse, NextRequest } from "next/server";
 import { uploadToCloudinary } from "@/middlewares/app/upload.images";
 
+// TYPES 
+
+interface UploadedFile {
+  url: string;
+  type: 'image' | 'video' | 'audio' | 'document';
+  mimeType: string;
+  size: number;
+  filename: string;
+  publicId?: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  alt?: string;
+  metadata?: Record<string, any>;
+}
+
+// HELPER FUNCTIONS 
+
+// Detect file type from MIME type
+function detectMediaType(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+// Check if file is allowed
+function isFileAllowed(mimeType: string, size: number): { allowed: boolean; message?: string } {
+  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+  
+  if (size > MAX_FILE_SIZE) {
+    return { allowed: false, message: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` };
+  }
+
+  const ALLOWED_TYPES = {
+    image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/jfif', 'image/svg+xml', 'image/bmp', 'image/tiff'],
+    video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/3gpp', 'video/mpeg'],
+    audio: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/aac', 'audio/flac', 'audio/mp4'],
+    document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+               'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+               'text/plain', 'text/csv', 'application/json', 'application/xml']
+  };
+
+  const type = detectMediaType(mimeType);
+  const allowedForType = ALLOWED_TYPES[type] || [];
+  
+  if (!allowedForType.includes(mimeType)) {
+    return { allowed: false, message: `File type ${mimeType} is not allowed` };
+  }
+
+  return { allowed: true };
+}
+
+// Process uploaded file
+async function processFile(
+  file: File,
+  folder: string = "shairs/media",
+  alt?: string
+): Promise<UploadedFile> {
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  const mimeType = file.type;
+  const fileSize = file.size;
+  const filename = file.name;
+
+  // Validate file
+  const validation = isFileAllowed(mimeType, fileSize);
+  if (!validation.allowed) {
+    throw new Error(validation.message || 'Invalid file');
+  }
+
+  const mediaType = detectMediaType(mimeType);
+  const timestamp = Date.now();
+  const baseName = filename.replace(/\.[^/.]+$/, '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const publicId = `shair_${timestamp}_${baseName}`;
+
+  // Configure Cloudinary options based on file type
+  let uploadOptions: any = {
+    resource_type: 'auto',
+    public_id: publicId,
+    overwrite: false,
+  };
+
+  // Image specific options
+  if (mediaType === 'image') {
+    uploadOptions = {
+      ...uploadOptions,
+      resource_type: 'image',
+      transformation: [
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' }
+      ],
+    };
+    if (fileSize > 5 * 1024 * 1024) {
+      uploadOptions.eager = [
+        { width: 400, height: 400, crop: 'fill', format: 'jpg' }
+      ];
+    }
+  }
+
+  // Video specific options
+  if (mediaType === 'video') {
+    uploadOptions = {
+      ...uploadOptions,
+      resource_type: 'video',
+      transformation: [
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' }
+      ],
+      eager: [
+        { width: 400, height: 400, crop: 'fill', format: 'jpg', start_offset: '0' }
+      ],
+    };
+  }
+
+  // Audio specific options
+  if (mediaType === 'audio') {
+    uploadOptions = {
+      ...uploadOptions,
+      resource_type: 'video',
+      transformation: [
+        { quality: 'auto:good' },
+        { format: 'mp3' }
+      ],
+    };
+  }
+
+  // Document specific options
+  if (mediaType === 'document') {
+    uploadOptions = {
+      ...uploadOptions,
+      resource_type: 'raw',
+      eager: [
+        { format: 'jpg', page: '1' }
+      ],
+    };
+  }
+
+  // Upload to Cloudinary
+  const uploadResult = await uploadToCloudinary(
+    buffer,
+    folder,
+    uploadOptions
+  ) as any;
+
+  // Prepare response
+  const uploadedFile: UploadedFile = {
+    url: uploadResult.url,
+    type: mediaType,
+    mimeType: mimeType,
+    size: fileSize,
+    filename: filename,
+    publicId: uploadResult.publicId,
+    alt: alt || filename.replace(/\.[^/.]+$/, ''),
+  };
+
+  // Add optional fields based on media type
+  if (mediaType === 'image' || mediaType === 'video') {
+    uploadedFile.width = uploadResult.width;
+    uploadedFile.height = uploadResult.height;
+  }
+
+  if (mediaType === 'video' || mediaType === 'audio') {
+    uploadedFile.duration = uploadResult.duration;
+    uploadedFile.thumbnail = uploadResult.thumbnail || uploadResult.eager?.[0]?.secure_url;
+  }
+
+  if (mediaType === 'document') {
+    uploadedFile.thumbnail = uploadResult.eager?.[0]?.secure_url;
+  }
+
+  // Add metadata
+  uploadedFile.metadata = {
+    uploadedAt: new Date().toISOString(),
+    originalName: filename,
+    fileSize: fileSize,
+    width: uploadResult.width,
+    height: uploadResult.height,
+    format: uploadResult.format,
+    duration: uploadResult.duration,
+  };
+
+  return uploadedFile;
+}
+
+// MAIN API HANDLER 
+
 export async function POST(request: NextRequest) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     // Check Content-Type
     const contentType = request.headers.get("content-type") || "";
-    if (!contentType.includes("multipart/form-data") && !contentType.includes("application/x-www-form-urlencoded")) {
+    if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json(
         {
           success: false,
@@ -36,8 +224,11 @@ export async function POST(request: NextRequest) {
     const metaTitle = formData.get("metaTitle") as string;
     const metaDescription = formData.get("metaDescription") as string;
     const linksRaw = formData.get("links") as string;
+    const mediaFiles = formData.getAll("media") as File[];
+    const featured = formData.get("featured") === 'true';
 
-    // Validate required fields
+    // VALIDATIONS
+
     if (!takhallus) {
       return NextResponse.json(
         {
@@ -110,7 +301,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate content
+    // Validate content - exactly 2 lines
     if (!Array.isArray(content) || content.length !== 2) {
       return NextResponse.json(
         {
@@ -153,8 +344,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VALIDATE META TITLE & DESCRIPTION
-
+    // Validate meta fields
     if (metaTitle && metaTitle.length > 60) {
       return NextResponse.json(
         {
@@ -181,8 +371,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VALIDATE LINKS
+    // Validate media files limit
+    if (mediaFiles.length > 20) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Maximum 20 media files allowed",
+          data: null,
+          err: "MEDIA_LIMIT_EXCEEDED",
+          status: HTTP_STATUS.BAD_REQUEST,
+        },
+        { status: HTTP_STATUS.BAD_REQUEST }
+      );
+    }
 
+    // Validate links
     let links: any[] = [];
     if (linksRaw) {
       try {
@@ -297,8 +500,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // UPLOAD IMAGE
-
+    // Validate cover image
     const MAX_FILE_SIZE = 5 * 1024 * 1024;
     const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif"];
 
@@ -328,16 +530,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bytes = await coverImageFile.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    // UPLOAD FILES 
 
+    // Upload cover image
     let coverImageUrl: string;
+    let coverImageMetadata: any = {};
+
     try {
-      const uploadResult = await uploadToCloudinary(buffer, "shairs") as {
-        url: string;
-        publicId: string;
-      };
+      const bytes = await coverImageFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+
+      const uploadResult = await uploadToCloudinary(buffer, "shairs/covers", {
+        transformation: [
+          {
+            quality: "auto:eco",
+            fetch_format: "auto",
+          }
+        ]
+      }) as any;
+
       coverImageUrl = uploadResult.url;
+      coverImageMetadata = {
+        publicId: uploadResult.publicId,
+        width: uploadResult.width,
+        height: uploadResult.height,
+        format: uploadResult.format,
+        size: uploadResult.bytes,
+      };
+      console.log("Cover uploaded successfully:", coverImageUrl);
     } catch (error) {
       console.error("Cloudinary upload error:", error);
       return NextResponse.json(
@@ -352,6 +572,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Upload media files (gallery)
+    let uploadedMedia: UploadedFile[] = [];
+    if (mediaFiles.length > 0) {
+      console.log(`Processing ${mediaFiles.length} media files...`);
+      
+      for (let i = 0; i < mediaFiles.length; i++) {
+        const file = mediaFiles[i];
+        try {
+          console.log(`Uploading media ${i + 1}/${mediaFiles.length}: ${file.name}`);
+          const mediaFile = await processFile(
+            file,
+            "shairs/media",
+            `Media ${i + 1} for ${takhallus}`
+          );
+          uploadedMedia.push(mediaFile);
+          console.log(`Media ${i + 1} uploaded successfully`);
+        } catch (error) {
+          console.error(`Failed to upload media ${i + 1}:`, error);
+        }
+      }
+    }
+
+    // Check for duplicate slug
+    const tempSlug = content[0]
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+
+    const existingShair = await ShairModel.findOne({ slug: tempSlug });
+    const finalSlug = existingShair ? `${tempSlug}-${Date.now()}` : tempSlug;
+
     // CREATE SHAIR
 
     const shair = new ShairModel({
@@ -359,14 +612,22 @@ export async function POST(request: NextRequest) {
       content,
       category: categories,
       coverImage: coverImageUrl,
+      coverImageMetadata,
+      media: uploadedMedia,
+      slug: finalSlug,
       metaTitle: metaTitle || undefined,
       metaDescription: metaDescription || undefined,
       links: links || [],
+      featured: featured || false,
       likes: [],
       comments: [],
+      views: 0,
+      publishedAt: new Date(),
     });
 
     await shair.save();
+
+    // RESPONSE 
 
     return NextResponse.json(
       {
@@ -380,13 +641,22 @@ export async function POST(request: NextRequest) {
             content: shair.content,
             category: shair.category,
             coverImage: shair.coverImage,
+            coverImageMetadata: shair.coverImageMetadata,
+            media: shair.media,
             metaTitle: shair.metaTitle,
             metaDescription: shair.metaDescription,
             links: shair.links,
+            featured: shair.featured,
+            views: shair.views,
             likes: shair.likes,
             comments: shair.comments,
+            publishedAt: shair.publishedAt,
             createdAt: shair.createdAt,
             updatedAt: shair.updatedAt,
+          },
+          uploadSummary: {
+            totalMediaUploaded: uploadedMedia.length,
+            coverImageUploaded: true,
           },
         },
         err: null,
@@ -428,7 +698,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        message: "Internal Server Error",
+        message: error instanceof Error ? error.message : "Internal Server Error",
         data: null,
         err: "INTERNAL_SERVER_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,

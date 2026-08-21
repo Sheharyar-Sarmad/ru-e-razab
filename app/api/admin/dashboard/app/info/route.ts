@@ -1,4 +1,4 @@
-// app/api/admin/dashboard/stats/route.ts
+// app/api/admin/dashboard/app/info/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
@@ -11,12 +11,10 @@ import QataModel from "@/models/kalam/qata.model";
 import NazmModel from "@/models/kalam/nazm.model";
 
 // CACHE
-
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60 * 1000; // 1 minute
 
 // GET - Dashboard Statistics
-
 export async function GET(request: NextRequest) {
   const startTime = performance.now();
 
@@ -25,7 +23,6 @@ export async function GET(request: NextRequest) {
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     // CHECK CACHE
-
     const cacheKey = "dashboard-stats";
     const cached = cache.get(cacheKey);
 
@@ -42,8 +39,49 @@ export async function GET(request: NextRequest) {
 
     console.log("Cache MISS for dashboard stats");
 
-    // FETCH ALL COUNTS IN PARALLEL
+    // Helper: Get Weekly Activity (Count poetry per day of week for last 7 days)
+    const getWeeklyActivity = async () => {
+      const now = new Date();
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(now.getDate() - 7);
 
+      const aggregateByDay = async (model: any) => {
+        return model.aggregate([
+          { $match: { createdAt: { $gte: sevenDaysAgo } } },
+          {
+            $group: {
+              _id: { $dayOfWeek: "$createdAt" }, // 1=Sun, 7=Sat
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+      };
+
+      const [g, s, q, n] = await Promise.all([
+        aggregateByDay(GhazalModel),
+        aggregateByDay(ShairModel),
+        aggregateByDay(QataModel),
+        aggregateByDay(NazmModel),
+      ]);
+
+      const dayMap = new Map();
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      // Initialize map with zeros
+      for (let i = 1; i <= 7; i++) dayMap.set(i, 0);
+
+      [...g, ...s, ...q, ...n].forEach((item) => {
+        if (item._id >= 1 && item._id <= 7) {
+          dayMap.set(item._id, (dayMap.get(item._id) || 0) + item.count);
+        }
+      });
+
+      return Array.from(dayMap.entries()).map(([id, count]) => ({
+        day: dayNames[id - 1],
+        count,
+      }));
+    };
+
+    // FETCH ALL DATA IN PARALLEL (Top Poets completely removed)
     const [
       totalUsers,
       totalAdmins,
@@ -57,109 +95,74 @@ export async function GET(request: NextRequest) {
       recentShairs,
       recentQatas,
       recentNazms,
-      topPoets,
-      categoryStats,
+      categoryBreakdown,
       newUsersThisWeek,
       newPoetryThisWeek,
+      weeklyActivity,
     ] = await Promise.all([
       // 1. Total Users
       UserAccountModel.countDocuments(),
-      
+
       // 2. Total Admins
       AdminAccountModel.countDocuments(),
-      
+
       // 3. Total Ghazals
       GhazalModel.countDocuments(),
-      
+
       // 4. Total Shairs
       ShairModel.countDocuments(),
-      
+
       // 5. Total Qatas
       QataModel.countDocuments(),
-      
+
       // 6. Total Nazms
       NazmModel.countDocuments(),
-      
-      // 7. Active Users (users who have commented or liked)
+
+      // 7. Active Users
       UserAccountModel.countDocuments({
         $or: [
           { "comments": { $exists: true, $ne: [] } },
           { "likes": { $exists: true, $ne: [] } },
         ],
       }),
-      
-      // 8. Total Poetry (all categories combined)
+
+      // 8. Total Poetry
       Promise.all([
         GhazalModel.countDocuments(),
         ShairModel.countDocuments(),
         QataModel.countDocuments(),
         NazmModel.countDocuments(),
       ]).then(([g, s, q, n]) => g + s + q + n),
-      
-      // 9. Recent Ghazals (last 5)
+
+      // 9. Recent Ghazals
       GhazalModel.find()
         .select("takhallus slug metaTitle createdAt")
         .sort({ createdAt: -1 })
         .limit(5)
         .lean(),
-      
-      // 10. Recent Shairs (last 5)
+
+      // 10. Recent Shairs
       ShairModel.find()
         .select("takhallus slug metaTitle createdAt")
         .sort({ createdAt: -1 })
         .limit(5)
         .lean(),
-      
-      // 11. Recent Qatas (last 5)
+
+      // 11. Recent Qatas
       QataModel.find()
         .select("takhallus slug metaTitle createdAt")
         .sort({ createdAt: -1 })
         .limit(5)
         .lean(),
-      
-      // 12. Recent Nazms (last 5)
+
+      // 12. Recent Nazms
       NazmModel.find()
         .select("takhallus slug metaTitle createdAt")
         .sort({ createdAt: -1 })
         .limit(5)
         .lean(),
-      
-      // 13. Top Poets (by total contributions)
-      Promise.all([
-        GhazalModel.aggregate([
-          { $group: { _id: "$takhallus", count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 5 },
-        ]),
-        ShairModel.aggregate([
-          { $group: { _id: "$takhallus", count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 5 },
-        ]),
-        QataModel.aggregate([
-          { $group: { _id: "$takhallus", count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 5 },
-        ]),
-        NazmModel.aggregate([
-          { $group: { _id: "$takhallus", count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 5 },
-        ]),
-      ]).then(([ghazalPoets, shairPoets, qataPoets, nazmPoets]) => {
-        const poetMap = new Map();
-        [...ghazalPoets, ...shairPoets, ...qataPoets, ...nazmPoets].forEach((p) => {
-          if (p._id) {
-            poetMap.set(p._id, (poetMap.get(p._id) || 0) + p.count);
-          }
-        });
-        return Array.from(poetMap.entries())
-          .map(([name, count]) => ({ name, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 5);
-      }),
-      
-      // 14. Category Stats (breakdown by category)
+
+      // 13. Category Distribution (by genre)
       Promise.all([
         GhazalModel.aggregate([
           { $unwind: "$category" },
@@ -196,13 +199,13 @@ export async function GET(request: NextRequest) {
           .map(([name, count]) => ({ name, count }))
           .sort((a, b) => b.count - a.count);
       }),
-      
-      // 15. New users this week
+
+      // 14. New users this week
       UserAccountModel.countDocuments({
         createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       }),
-      
-      // 16. New poetry this week
+
+      // 15. New poetry this week
       Promise.all([
         GhazalModel.countDocuments({
           createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
@@ -217,12 +220,14 @@ export async function GET(request: NextRequest) {
           createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
         }),
       ]).then(([g, s, q, n]) => g + s + q + n),
+
+      // 16. Weekly Activity
+      getWeeklyActivity(),
     ]);
 
     const responseTime = performance.now() - startTime;
 
     // BUILD RESPONSE
-
     const responseData = {
       success: true,
       message: "Dashboard statistics fetched successfully",
@@ -234,7 +239,7 @@ export async function GET(request: NextRequest) {
           admins: totalAdmins,
           newThisWeek: newUsersThisWeek,
         },
-        
+
         // Poetry Overview
         poetry: {
           total: totalPoetry,
@@ -246,13 +251,13 @@ export async function GET(request: NextRequest) {
             nazms: totalNazms,
           },
         },
-        
-        // Category Stats
-        categories: categoryStats,
-        
-        // 🏆 Top Poets
-        topPoets,
-        
+
+        // Category Distribution (Genre)
+        categories: categoryBreakdown,
+
+        // Weekly Activity (Last 7 days)
+        weeklyActivity: weeklyActivity,
+
         // Recent Additions
         recent: {
           ghazals: recentGhazals,
@@ -260,8 +265,8 @@ export async function GET(request: NextRequest) {
           qatas: recentQatas,
           nazms: recentNazms,
         },
-        
-        // ⏱Meta
+
+        // Meta
         meta: {
           responseTime: `${responseTime.toFixed(2)}ms`,
           timestamp: new Date().toISOString(),

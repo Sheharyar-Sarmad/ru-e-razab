@@ -1,0 +1,16 @@
+
+Color     HEX          RGB                    Description
+
+🟤       #FFF3EF    rgb(255, 243, 239)   Warm White / Pale Shell
+🟢       #2B4735    rgb(43, 71, 53)      Deep Forest Green
+🟠       #BD4D23    rgb(189, 77, 35)     Burnt Rust / Terracotta
+🟡       #BF7303    rgb(191, 115, 3)     Rich Mustard / Ochre
+🟢       #6FEB2C    rgb(111, 235, 44)    Electric Lime / Neon Green
+🟣       #A964FF    rgb(169, 100, 255)   Soft Amethyst / Violet
+🔵       #4786C4    rgb(71, 134, 196)    Tata Blue
+🔴       #E13C67    rgb(225, 60, 103)    Pink/Red
+🟣       #9E4688    rgb(158, 70, 136)    Purple
+🟠       #D74931    rgb(215, 73, 49)     Orange
+🟡       #ED971D    rgb(237, 151, 29)    Yellow/Gold
+🔵       #274664    rgb(39, 70, 100)     Dark blue
+🟤       #BD9C97    rgb(189, 156, 151)   Dusty Rose / Muted Taupe

@@ -1,4 +1,3 @@
-// app/api/admin/dashboard/deewan-e-ghazal/hazf/[slug]/route.ts
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
@@ -6,13 +5,18 @@ import GhazalModel from "@/models/kalam/ghazals.model";
 import { NextResponse, NextRequest } from "next/server";
 import cloudinary from "@/config/cloudinary.config";
 
-// Helper: Delete image from Cloudinary
-const deleteFromCloudinary = async (publicId: string): Promise<boolean> => {
+// Helper: Delete file from Cloudinary with proper resource type
+const deleteFromCloudinary = async (
+  publicId: string,
+  resourceType: 'image' | 'video' | 'raw' = 'image'
+): Promise<boolean> => {
   try {
-    const result = await cloudinary.uploader.destroy(publicId);
+    const result = await cloudinary.uploader.destroy(publicId, { 
+      resource_type: resourceType 
+    });
     return result.result === "ok";
   } catch (error) {
-    console.error("Cloudinary delete error:", error);
+    console.error(`Cloudinary delete error for ${publicId} (${resourceType}):`, error);
     return false;
   }
 };
@@ -62,7 +66,7 @@ export async function DELETE(
       );
     }
 
-    // STEP 1: Find ghazal to get cover image
+    // STEP 1: Find ghazal to get all media & cover image
     const ghazal = await GhazalModel.findOne({ slug });
     
     if (!ghazal) {
@@ -78,50 +82,75 @@ export async function DELETE(
       );
     }
 
-    // Store cover image URL and public ID
-    const coverImageUrl = ghazal.coverImage;
-    let publicId: string | null = null;
+    // STEP 2: Delete all associated files from Cloudinary
+    let coverImageDeleted = false;
+    let mediaFilesDeleted = 0;
+    let mediaErrors = 0;
 
-    // Extract public ID from the URL
-    if (coverImageUrl) {
-      publicId = extractPublicId(coverImageUrl);
-      console.log("Extracted public ID:", publicId);
-    }
-
-    // STEP 2: Delete ghazal from database
-    await GhazalModel.findOneAndDelete({ slug });
-
-    // STEP 3: Delete cover image from Cloudinary
-    let imageDeleted = false;
-
-    if (publicId) {
-      try {
-        imageDeleted = await deleteFromCloudinary(publicId);
-        console.log(`📸 Image ${imageDeleted ? '✅' : '❌'} deleted: ${publicId}`);
-      } catch (error) {
-        console.error("Failed to delete cover image:", error);
-        // Don't fail the request if image deletion fails
+    // 2a. Delete Cover Image
+    if (ghazal.coverImage) {
+      const publicId = extractPublicId(ghazal.coverImage);
+      if (publicId) {
+        try {
+          coverImageDeleted = await deleteFromCloudinary(publicId, 'image');
+          console.log(`📸 Cover image ${coverImageDeleted ? '✅' : '❌'} deleted: ${publicId}`);
+        } catch (error) {
+          console.error("Failed to delete cover image:", error);
+        }
       }
     }
+
+    // 2b. Delete all Media Files (Video, Audio, Images, Documents)
+    const mediaDeletionPromises = ghazal.media.map(async (mediaItem) => {
+      if (mediaItem.publicId) {
+        // Map your internal media types to Cloudinary resource types
+        let resourceType: 'image' | 'video' | 'raw' = 'image';
+        
+        if (mediaItem.type === 'video' || mediaItem.type === 'audio') {
+          resourceType = 'video'; // Cloudinary treats audio as video resource
+        } else if (mediaItem.type === 'document') {
+          resourceType = 'raw';
+        } // else it stays 'image'
+
+        try {
+          const deleted = await deleteFromCloudinary(mediaItem.publicId, resourceType);
+          if (deleted) {
+            mediaFilesDeleted++;
+          } else {
+            mediaErrors++;
+          }
+          return deleted;
+        } catch (error) {
+          mediaErrors++;
+          console.error(`Failed to delete media ${mediaItem.publicId}:`, error);
+          return false;
+        }
+      }
+      return false;
+    });
+
+    // Wait for all media deletions to finish
+    await Promise.all(mediaDeletionPromises);
+
+    // STEP 3: Delete ghazal from database (after Cloudinary cleanup)
+    await GhazalModel.findOneAndDelete({ slug });
 
     const responseTime = performance.now() - startTime;
 
     return NextResponse.json(
       {
         success: true,
-        message: "Ghazal deleted successfully (حذف ہوگیا)",
+        message: "Ghazal and associated files deleted successfully (حذف ہوگیا)",
         data: {
           deletedGhazal: {
             id: ghazal._id,
             takhallus: ghazal.takhallus,
             slug: ghazal.slug,
-            content: ghazal.content,
-            category: ghazal.category,
           },
-          image: {
-            url: coverImageUrl,
-            publicId: publicId,
-            deleted: imageDeleted,
+          cleanupSummary: {
+            coverImageDeleted,
+            mediaFilesDeleted,
+            mediaErrors,
           },
           responseTime: `${responseTime.toFixed(2)}ms`,
         },

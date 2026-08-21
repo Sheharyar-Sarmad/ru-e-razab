@@ -5,12 +5,8 @@ import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import QataModel from "@/models/kalam/qata.model";
 
-// CACHE
-
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60 * 1000; // 1 minute
-
-// HELPER: Get cache key
 
 function getCacheKey(
   page: number,
@@ -24,41 +20,25 @@ function getCacheKey(
   return `qatas:${page}:${limit}:${search}:${category}:${takhallus}:${sortBy}:${sortOrder}`;
 }
 
-// GET - All Qatas with Pagination, Search & Filtering
-
 export async function GET(request: NextRequest) {
   const startTime = performance.now();
 
   try {
-    // Connect to database
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     const { searchParams } = new URL(request.url);
-
-    //  PAGINATION
-      
     const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "9"); // 9 per page
+    const limit = parseInt(searchParams.get("limit") || "9");
     const skip = (page - 1) * limit;
-
-    // SEARCH & FILTERS
-
     const search = searchParams.get("search") || "";
     const category = searchParams.get("category") || "";
     const takhallus = searchParams.get("takhallus") || "";
-
-    // SORTING
-
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
-    // CHECK CACHE
-
     const cacheKey = getCacheKey(page, limit, search, category, takhallus, sortBy, sortOrder);
     const cached = cache.get(cacheKey);
-
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
       return NextResponse.json(cached.data, {
         status: HTTP_STATUS.OK,
         headers: {
@@ -68,51 +48,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // BUILD FILTER
-
+    // Build filter
     let filter: any = {};
-
-    // Search filter
     if (search) {
-      filter.$or = [
-        { takhallus: { $regex: search, $options: "i" } },
-        { "content.lines": { $regex: search, $options: "i" } },
-        { metaTitle: { $regex: search, $options: "i" } },
-        { metaDescription: { $regex: search, $options: "i" } },
-      ];
+      filter.$text = { $search: search };
     }
-
-    // Category filter
     if (category) {
       filter.category = { $in: [category] };
     }
-
-    // Takhallus filter
     if (takhallus) {
-      filter.takhallus = { $regex: takhallus, $options: "i" };
+      filter.takhallus = { $regex: `^${takhallus}$`, $options: "i" };
     }
 
-    // 📊 BUILD SORT
+    // Build sort
+    let sort: any = {};
+    if (search) {
+      sort = { score: { $meta: "textScore" } };
+    } else {
+      sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+    }
 
-    const sort: any = {};
-    sort[sortBy] = sortOrder === "desc" ? -1 : 1;
-
-    // EXECUTE QUERY
+    const query = QataModel.find(filter)
+      .select(
+        "takhallus slug content category coverImage coverImageMetadata media metaTitle metaDescription links likes comments createdAt updatedAt featured views publishedAt"
+      );
+    if (search) {
+      query.select({ score: { $meta: "textScore" } });
+    }
 
     const [qatas, total] = await Promise.all([
-      QataModel.find(filter)
-        .select("takhallus slug content category coverImage metaTitle metaDescription links likes comments createdAt updatedAt")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean()
-        .exec(),
+      query.sort(sort).skip(skip).limit(limit).lean().exec(),
       QataModel.countDocuments(filter),
     ]);
-
-    // GET ALL CATEGORIES & POETS (for filters)
 
     const [allCategories, allPoets] = await Promise.all([
       QataModel.distinct("category"),
@@ -121,10 +88,6 @@ export async function GET(request: NextRequest) {
 
     const responseTime = performance.now() - startTime;
     const totalPages = Math.ceil(total / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1;
-
-    // BUILD RESPONSE
 
     const responseData = {
       success: true,
@@ -136,10 +99,8 @@ export async function GET(request: NextRequest) {
           page,
           limit,
           totalPages,
-          hasNext,
-          hasPrev,
-          nextPage: hasNext ? page + 1 : null,
-          prevPage: hasPrev ? page - 1 : null,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
         },
         filters: {
           search: search || null,
@@ -148,24 +109,14 @@ export async function GET(request: NextRequest) {
           availableCategories: allCategories,
           availablePoets: allPoets,
         },
-        sort: {
-          field: sortBy,
-          order: sortOrder,
-        },
-        meta: {
-          responseTime: `${responseTime.toFixed(2)}ms`,
-        },
+        sort: { field: sortBy, order: sortOrder },
+        meta: { responseTime: `${responseTime.toFixed(2)}ms` },
       },
       err: null,
       status: HTTP_STATUS.OK,
     };
 
-    // STORE IN CACHE
-
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
 
     return NextResponse.json(responseData, {
       status: HTTP_STATUS.OK,
