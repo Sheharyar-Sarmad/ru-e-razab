@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🖋️ Ru-e-Razab Shayar
 
-## Getting Started
+> AI-powered Urdu poetry platform with social features, admin dashboard & community engagement.
 
-First, run the development server:
+[![Next.js](https://img.shields.io/badge/Next.js-14.0+-black.svg)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-18.2+-cyan.svg)](https://reactjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18.0+-green.svg)](https://nodejs.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-6.0+-green.svg)](https://www.mongodb.com/)
+[![Tailwind](https://img.shields.io/badge/Tailwind-3.0+-blue.svg)](https://tailwindcss.com/)
 
+---
+
+## 🌟 Overview
+
+**Ru-e-Razab Shayar** is a modern Urdu poetry platform that combines traditional shayari with AI technology. Users can share, discover, and generate poetry with social features like likes, comments, and following. The platform includes a comprehensive admin panel for content management and user moderation.
+
+> 📖 *"Ru-e-Razab" — Where words find their rhythm.*
+
+---
+
+## ✨ Features
+
+### 📝 Poetry Features
+- Create & share Urdu poetry
+- AI-powered shayari generation
+- Poetry categories (Romantic, Sad, Motivational, etc.)
+- Featured & trending poems
+
+### 👥 Social Features
+- User profiles & following system
+- Like & comment on poetry
+- Share poetry on social media
+- Save favorites to collections
+
+### 🔧 Admin Panel
+- Dashboard with analytics
+- User management
+- Content moderation
+- Poetry approvals & featured content
+- Reports & insights
+
+### 🎨 Design
+- Elegant Urdu typography
+- Dark/Light theme support
+- Responsive mobile-first design
+- Glassmorphism UI elements
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+| Technology | Purpose |
+|------------|---------|
+| Next.js 14 | React framework |
+| React 18 | UI library |
+| Tailwind CSS | Styling |
+| Framer Motion | Animations |
+| Next Auth | Authentication |
+| React Hook Form | Form handling |
+| Axios | API calls |
+
+### Backend
+| Technology | Purpose |
+|------------|---------|
+| Node.js | Runtime environment |
+| Next.js API Routes | Backend endpoints |
+| MongoDB | Database |
+| Mongoose | ODM |
+| JWT | Authentication |
+| Bcrypt | Password hashing |
+
+### AI Integration
+| Technology | Purpose |
+|------------|---------|
+| OpenAI API | Poetry generation |
+| Google Gemini | Alternative AI |
+| LangChain | AI orchestration |
+| Natural | Urdu text processing |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Node.js (v18+)
+MongoDB (local or Atlas)
+npm or yarn
+OpenAI API Key (for AI features)
