@@ -22,7 +22,7 @@
 
 ### 📝 Poetry Features
 - Create & share Urdu poetry
-- AI-powered shayari generation
+- AI-powered intelligence
 - Poetry categories (Romantic, Sad, Motivational, etc.)
 - Featured & trending poems
 
@@ -70,15 +70,6 @@
 | JWT | Authentication |
 | Bcrypt | Password hashing |
 
-### AI Integration
-| Technology | Purpose |
-|------------|---------|
-| OpenAI API | Poetry generation |
-| Google Gemini | Alternative AI |
-| LangChain | AI orchestration |
-| Natural | Urdu text processing |
-
----
 
 ## 🚀 Quick Start
 
@@ -87,4 +78,4 @@
 Node.js (v18+)
 MongoDB (local or Atlas)
 npm or yarn
-OpenAI API Key (for AI features)
+Groq API key(for AI features)
