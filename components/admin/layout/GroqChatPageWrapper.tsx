@@ -1,7 +1,7 @@
 // components/admin/layout/GroqChatPageWrapper.tsx
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { marked } from "marked";
 import {
@@ -20,13 +20,18 @@ import {
   PrinterIcon,
   MicrophoneIcon,
   StopIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
+  PauseIcon,
 } from "@heroicons/react/24/outline";
 import { COLORS } from "@/lib/colors";
 import { toast } from "react-toastify";
 
+// ─── Types ──────────────────────────────────────────────────────
 interface Message {
   role: "user" | "assistant" | "system";
   content: string;
+  createdAt?: string; // ISO string
 }
 
 const QUICK_ACTIONS = [
@@ -36,61 +41,242 @@ const QUICK_ACTIONS = [
   { label: "Anomalies", icon: ChatBubbleLeftIcon, query: "Are there any anomalous ghazals?" },
 ];
 
-// Configure marked for tables and GFM
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-  tables: true,
-});
+marked.setOptions({ gfm: true, breaks: true, tables: true });
 
-// ─── Logger utility ──────────────────────────────────────────────
+// ─── Logger ─────────────────────────────────────────────────────
 const logger = {
-  info: (component: string, message: string, data?: any) => {
-    console.log(
-      `%c[${component}] ${message}`,
-      'color: #2563eb; font-weight: bold;',
-      data ? data : ''
-    );
-  },
-  success: (component: string, message: string, data?: any) => {
-    console.log(
-      `%c[${component}] ✅ ${message}`,
-      'color: #16a34a; font-weight: bold;',
-      data ? data : ''
-    );
-  },
-  warn: (component: string, message: string, data?: any) => {
-    console.warn(
-      `%c[${component}] ⚠️ ${message}`,
-      'color: #ea580c; font-weight: bold;',
-      data ? data : ''
-    );
-  },
-  error: (component: string, message: string, error?: any) => {
-    console.error(
-      `%c[${component}] ❌ ${message}`,
-      'color: #dc2626; font-weight: bold;',
-      error || ''
-    );
-  },
-  debug: (component: string, message: string, data?: any) => {
-    console.debug(
-      `%c[${component}] 🔍 ${message}`,
-      'color: #7c3aed; font-weight: bold;',
-      data ? data : ''
-    );
-  }
+  info: (c: string, m: string, d?: any) => console.log(`%c[${c}] ${m}`, 'color:#2563eb;font-weight:bold;', d ?? ''),
+  success: (c: string, m: string, d?: any) => console.log(`%c[${c}] ✅ ${m}`, 'color:#16a34a;font-weight:bold;', d ?? ''),
+  warn: (c: string, m: string, d?: any) => console.warn(`%c[${c}] ⚠️ ${m}`, 'color:#ea580c;font-weight:bold;', d ?? ''),
+  error: (c: string, m: string, e?: any) => console.error(`%c[${c}] ❌ ${m}`, 'color:#dc2626;font-weight:bold;', e ?? ''),
+  debug: (c: string, m: string, d?: any) => console.debug(`%c[${c}] 🔍 ${m}`, 'color:#7c3aed;font-weight:bold;', d ?? ''),
 };
 
+// ─── Date/time helpers ──────────────────────────────────────────
+const startOfDay = (d: Date) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+/** Format just the time: "11:09 AM" */
+const formatTime = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+/** Format relative day label for dividers: Today / Yesterday / Mon, Sep 11 */
+const formatDayLabel = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const today = startOfDay(new Date());
+  const thatDay = startOfDay(d);
+  const diffDays = Math.round((today.getTime() - thatDay.getTime()) / 86400000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) {
+    return d.toLocaleDateString("en-US", { weekday: "long" });
+  }
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: today.getFullYear() === d.getFullYear() ? undefined : "numeric",
+  });
+};
+
+/** Full tooltip string: "Monday, September 11, 2026 at 11:09:23 AM" */
+const formatFullTimestamp = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+};
+
+/** Are two ISO timestamps on the same calendar day? */
+const sameDay = (a?: string, b?: string): boolean => {
+  if (!a || !b) return true;
+  const da = new Date(a);
+  const db = new Date(b);
+  if (isNaN(da.getTime()) || isNaN(db.getTime())) return true;
+  return startOfDay(da).getTime() === startOfDay(db).getTime();
+};
+
+/** Compact time for the message bubble: "11:09 AM" (today) or "Sep 9, 11:09 AM" (older) */
+const formatBubbleTime = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const today = startOfDay(new Date());
+  const thatDay = startOfDay(d);
+  const isToday = today.getTime() === thatDay.getTime();
+  if (isToday) {
+    return d.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+// ─── Strip markdown for TTS ─────────────────────────────────────
+const stripMarkdownForSpeech = (text: string): string => {
+  if (!text) return "";
+  return text
+    .replace(/```[\s\S]*?```/g, " code block ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/#{1,6}\s*/g, "")
+    .replace(/[*_~]{1,3}/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\|/g, " ")
+    .replace(/[-]{2,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+// ─── Voice waveform ────────────────────────────────────────────
+const VoiceVisualizer = ({ active, color = COLORS.burntRust }: { active: boolean; color?: string }) => {
+  const bars = 5;
+  return (
+    <div className="flex items-center justify-center gap-[3px] h-5">
+      {Array.from({ length: bars }).map((_, i) => (
+        <motion.span
+          key={i}
+          className="rounded-full"
+          style={{ background: color, width: 3, display: "inline-block" }}
+          animate={
+            active
+              ? { height: [6, 16, 10, 20, 8, 14, 6], opacity: [0.6, 1, 0.7, 1, 0.6] }
+              : { height: 4, opacity: 0.35 }
+          }
+          transition={{
+            duration: 1.1,
+            repeat: active ? Infinity : 0,
+            ease: "easeInOut",
+            delay: i * 0.09,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+// ─── Mic orb ────────────────────────────────────────────────────
+const MicOrb = ({
+  listening,
+  speaking,
+  color,
+  onClick,
+  title,
+  children,
+}: {
+  listening: boolean;
+  speaking: boolean;
+  color: string;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) => {
+  const active = listening || speaking;
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="relative flex items-center justify-center w-12 h-12 rounded-full transition-transform hover:scale-105 active:scale-95"
+      style={{
+        background: active
+          ? `radial-gradient(circle at 30% 30%, ${color}, ${color}cc)`
+          : "linear-gradient(135deg, #e5e7eb, #d1d5db)",
+        boxShadow: active
+          ? `0 0 0 4px ${color}22, 0 0 18px ${color}66, inset 0 0 12px rgba(255,255,255,0.25)`
+          : "inset 0 1px 2px rgba(0,0,0,0.06)",
+        color: active ? "#fff" : "#4b5563",
+      }}
+    >
+      <AnimatePresence>
+        {active && (
+          <>
+            <motion.span
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{ border: `2px solid ${color}` }}
+              initial={{ scale: 1, opacity: 0.6 }}
+              animate={{ scale: 1.7, opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
+            />
+            <motion.span
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{ border: `2px solid ${color}` }}
+              initial={{ scale: 1, opacity: 0.5 }}
+              animate={{ scale: 1.4, opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
+            />
+            <motion.span
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{ border: `2px solid ${color}` }}
+              initial={{ scale: 1, opacity: 0.4 }}
+              animate={{ scale: 2.05, opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut", delay: 0.9 }}
+            />
+          </>
+        )}
+      </AnimatePresence>
+      <span className="relative z-10">{children}</span>
+    </button>
+  );
+};
+
+// ─── Date divider between message groups ────────────────────────
+const DateDivider = ({ label }: { label: string }) => (
+  <div className="flex items-center gap-3 my-4 no-print">
+    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/80 border border-gray-100">
+      {label}
+    </span>
+    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+  </div>
+);
+
+// ─── Main component ─────────────────────────────────────────────
 export default function GroqChatPageWrapper() {
-  const COMPONENT = 'GroqChatPageWrapper';
-  
+  const COMPONENT = "GroqChatPageWrapper";
+
   const [isVisible, setIsVisible] = useState(true);
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
       content: "Hello! I'm RAZAB AI, your administrative assistant. How can I help you manage Ru-e-Razab today?",
+      createdAt: new Date().toISOString(),
     },
   ]);
   const [input, setInput] = useState("");
@@ -100,409 +286,242 @@ export default function GroqChatPageWrapper() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOnline] = useState(true);
 
-  // ─── Voice recognition state ────────────────────────────────
+  // STT
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const [voiceSupported, setVoiceSupported] = useState<boolean | null>(null);
   const [transcript, setTranscript] = useState("");
 
-  logger.info(COMPONENT, 'Component mounted');
+  // TTS
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [ttsSupported, setTtsSupported] = useState<boolean | null>(null);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  // ─── Auto‑scroll ──────────────────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMessage]);
 
-  // ─── Focus input ───────────────────────────────────────────────
   useEffect(() => {
     if (isVisible && !isMinimized) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-        logger.debug(COMPONENT, 'Input focused');
-      }, 100);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isVisible, isMinimized]);
 
-  // ─── Check browser support on mount ──────────────────────────
   useEffect(() => {
-    logger.info(COMPONENT, 'Checking browser speech recognition support');
-    
     if (typeof window === "undefined") {
-      logger.warn(COMPONENT, 'Window is undefined (SSR environment)');
       setVoiceSupported(false);
+      setTtsSupported(false);
       return;
     }
-
-    const SpeechRecognition = 
-      (window as any).SpeechRecognition || 
+    const SR =
+      (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition ||
       (window as any).mozSpeechRecognition ||
       (window as any).msSpeechRecognition;
-
-    if (SpeechRecognition) {
-      logger.success(COMPONENT, 'Speech recognition is supported', { 
-        browser: navigator.userAgent,
-        hasSpeechRecognition: !!SpeechRecognition
-      });
-      setVoiceSupported(true);
+    setVoiceSupported(!!SR);
+    if ("speechSynthesis" in window) {
+      setTtsSupported(true);
+      window.speechSynthesis.getVoices();
     } else {
-      logger.warn(COMPONENT, 'Speech recognition is NOT supported in this browser', {
-        browser: navigator.userAgent,
-        availableAPIs: {
-          SpeechRecognition: !!(window as any).SpeechRecognition,
-          webkitSpeechRecognition: !!(window as any).webkitSpeechRecognition,
-          mozSpeechRecognition: !!(window as any).mozSpeechRecognition,
-          msSpeechRecognition: !!(window as any).msSpeechRecognition,
-        }
-      });
-      setVoiceSupported(false);
+      setTtsSupported(false);
     }
-
     return () => {
-      if (recognitionRef.current) {
-        logger.info(COMPONENT, 'Cleaning up recognition instance');
-        try {
-          recognitionRef.current.abort();
-          logger.success(COMPONENT, 'Recognition cleaned up successfully');
-        } catch (e) {
-          logger.warn(COMPONENT, 'Error during recognition cleanup', e);
-        }
-        recognitionRef.current = null;
-      }
+      try { recognitionRef.current?.abort(); } catch {}
+      recognitionRef.current = null;
+      try { window.speechSynthesis?.cancel(); } catch {}
     };
   }, []);
 
-  // ─── Initialize Speech Recognition ───────────────────────────
-  const initSpeechRecognition = () => {
-    logger.info(COMPONENT, 'Initializing speech recognition');
-    
-    if (typeof window === "undefined") {
-      logger.warn(COMPONENT, 'Cannot initialize in SSR environment');
-      return null;
-    }
+  const stopSpeaking = useCallback(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try { window.speechSynthesis.cancel(); } catch {}
+    setIsSpeaking(false);
+    utteranceRef.current = null;
+  }, []);
 
-    const SpeechRecognition = 
-      (window as any).SpeechRecognition || 
+  const speakText = useCallback(
+    (rawText: string) => {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (!ttsEnabled) return;
+      const text = stripMarkdownForSpeech(rawText);
+      if (!text) return;
+      try { window.speechSynthesis.cancel(); } catch {}
+
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1;
+      utter.pitch = 1;
+      utter.volume = 1;
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        const preferred =
+          voices.find(
+            (v) =>
+              /en-(US|GB)/i.test(v.lang) &&
+              /(Google|Samantha|Daniel|Microsoft|Natural)/i.test(v.name)
+          ) ||
+          voices.find((v) => /en-(US|GB)/i.test(v.lang)) ||
+          voices[0];
+        if (preferred) {
+          utter.voice = preferred;
+          utter.lang = preferred.lang;
+        }
+      } catch {}
+
+      utter.onstart = () => setIsSpeaking(true);
+      utter.onend = () => { setIsSpeaking(false); utteranceRef.current = null; };
+      utter.onerror = () => { setIsSpeaking(false); utteranceRef.current = null; };
+
+      utteranceRef.current = utter;
+      try { window.speechSynthesis.speak(utter); } catch { setIsSpeaking(false); }
+    },
+    [ttsEnabled]
+  );
+
+  const initSpeechRecognition = () => {
+    if (typeof window === "undefined") return null;
+    const SR =
+      (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition ||
       (window as any).mozSpeechRecognition ||
       (window as any).msSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      logger.error(COMPONENT, 'No SpeechRecognition API found');
-      setVoiceSupported(false);
-      return null;
-    }
-
+    if (!SR) return null;
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-      recognition.maxAlternatives = 1;
-      
-      logger.success(COMPONENT, 'Speech recognition initialized successfully', {
-        continuous: recognition.continuous,
-        interimResults: recognition.interimResults,
-        lang: recognition.lang,
-        maxAlternatives: recognition.maxAlternatives
-      });
-      
-      return recognition;
-    } catch (error) {
-      logger.error(COMPONENT, 'Failed to initialize speech recognition', error);
-      return null;
-    }
+      const r = new SR();
+      r.continuous = false;
+      r.interimResults = true;
+      r.lang = "en-US";
+      r.maxAlternatives = 1;
+      return r;
+    } catch { return null; }
   };
 
-  // ─── Start voice recognition ──────────────────────────────────
-  const startListening = () => {
-    logger.info(COMPONENT, 'startListening called');
-    
+  const startListening = async () => {
+    stopSpeaking();
     if (voiceSupported === false) {
-      logger.warn(COMPONENT, 'Voice not supported, showing error toast');
       toast.error("Voice recognition is not supported in this browser.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
         progressStyle: { background: "#BD4D23" },
       });
       return;
     }
+    if (isLoading) return;
 
-    if (isLoading) {
-      logger.warn(COMPONENT, 'Cannot start listening while loading');
-      return;
-    }
-
-    // Initialize recognition if not already created
-    if (!recognitionRef.current) {
-      logger.info(COMPONENT, 'Creating new recognition instance');
-      const recognition = initSpeechRecognition();
-      if (!recognition) {
-        logger.error(COMPONENT, 'Failed to create recognition instance');
-        setVoiceSupported(false);
-        toast.error("Failed to initialize voice recognition.", {
-          style: { background: "#4A2B2B", color: "#FFF3EF" },
-          progressStyle: { background: "#BD4D23" },
-        });
-        return;
-      }
-      recognitionRef.current = recognition;
-    }
-
-    // Clean up any existing recognition session
     try {
-      if (recognitionRef.current._isActive) {
-        logger.info(COMPONENT, 'Aborting previous recognition session');
-        recognitionRef.current.abort();
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
       }
-    } catch (e) {
-      logger.debug(COMPONENT, 'No active session to abort', e);
-    }
-
-    // Set up event handlers
-    const recognition = recognitionRef.current;
-    logger.info(COMPONENT, 'Setting up event handlers');
-
-    recognition.onstart = () => {
-      logger.success(COMPONENT, '🎤 Recognition started - microphone is active');
-      setIsListening(true);
-      setTranscript("");
-    };
-
-    recognition.onaudiostart = () => {
-      logger.debug(COMPONENT, 'Audio capture started');
-    };
-
-    recognition.onaudioend = () => {
-      logger.debug(COMPONENT, 'Audio capture ended');
-    };
-
-    recognition.onsoundstart = () => {
-      logger.debug(COMPONENT, 'Sound detected');
-    };
-
-    recognition.onsoundend = () => {
-      logger.debug(COMPONENT, 'Sound ended');
-    };
-
-    recognition.onspeechstart = () => {
-      logger.debug(COMPONENT, 'Speech started');
-    };
-
-    recognition.onspeechend = () => {
-      logger.debug(COMPONENT, 'Speech ended - auto-stopping after 1s');
-      setTimeout(() => {
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-            logger.info(COMPONENT, 'Auto-stopped recognition after speech ended');
-          } catch (e) {
-            logger.warn(COMPONENT, 'Error auto-stopping recognition', e);
-          }
-        }
-        setIsListening(false);
-      }, 1000);
-    };
-
-    recognition.onresult = (event: any) => {
-      logger.debug(COMPONENT, 'Result event received', { 
-        resultCount: event.results.length,
-        resultIndex: event.resultIndex
-      });
-      
-      let finalTranscript = "";
-      let interimTranscript = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcriptText = result[0].transcript;
-        const confidence = result[0].confidence;
-        
-        logger.debug(COMPONENT, `Result ${i}:`, { 
-          transcript: transcriptText,
-          confidence: confidence,
-          isFinal: result.isFinal
-        });
-        
-        if (result.isFinal) {
-          finalTranscript += transcriptText;
-        } else {
-          interimTranscript += transcriptText;
-        }
-      }
-
-      if (interimTranscript) {
-        logger.debug(COMPONENT, 'Interim transcript updated', { transcript: interimTranscript });
-        setInput(interimTranscript);
-        setTranscript(interimTranscript);
-      }
-
-      if (finalTranscript) {
-        logger.success(COMPONENT, '🎤 Final transcript received', { transcript: finalTranscript });
-        setInput(finalTranscript);
-        setTranscript(finalTranscript);
-        setIsListening(false);
-        
-        // Send the message after a short delay
-        setTimeout(() => {
-          if (finalTranscript.trim()) {
-            logger.info(COMPONENT, 'Sending voice message', { message: finalTranscript.trim() });
-            handleSend(finalTranscript.trim());
-          } else {
-            logger.warn(COMPONENT, 'Empty transcript - not sending');
-          }
-        }, 300);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      logger.error(COMPONENT, 'Recognition error occurred', {
-        error: event.error,
-        message: event.message,
-        type: event.type
-      });
-      
-      setIsListening(false);
-      
-      // Handle specific error types
-      switch(event.error) {
-        case 'no-speech':
-          logger.warn(COMPONENT, 'No speech detected - user didn\'t speak');
-          setInput(transcript || "");
-          toast.info("No speech detected. Please try again.", {
-            style: { background: "#2B4735", color: "#FFF3EF" },
-            progressStyle: { background: "#A964FF" },
-            autoClose: 2000,
-          });
-          break;
-        case 'aborted':
-          logger.info(COMPONENT, 'Recognition aborted by user');
-          break;
-        case 'not-allowed':
-          logger.error(COMPONENT, 'Microphone permission denied');
-          toast.error("Microphone access denied. Please allow microphone access.", {
-            style: { background: "#4A2B2B", color: "#FFF3EF" },
-            progressStyle: { background: "#BD4D23" },
-          });
-          break;
-        case 'audio-capture':
-          logger.error(COMPONENT, 'No microphone found');
-          toast.error("No microphone found. Please check your audio device.", {
-            style: { background: "#4A2B2B", color: "#FFF3EF" },
-            progressStyle: { background: "#BD4D23" },
-          });
-          break;
-        case 'network':
-          logger.error(COMPONENT, 'Network error during recognition');
-          toast.error("Network error. Please check your connection.", {
-            style: { background: "#4A2B2B", color: "#FFF3EF" },
-            progressStyle: { background: "#BD4D23" },
-          });
-          break;
-        default:
-          logger.error(COMPONENT, 'Unhandled recognition error', event.error);
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            toast.error(`Voice error: ${event.error}`, {
-              style: { background: "#4A2B2B", color: "#FFF3EF" },
-              progressStyle: { background: "#BD4D23" },
-            });
-          }
-      }
-    };
-
-    recognition.onend = () => {
-      logger.info(COMPONENT, 'Recognition ended');
-      setIsListening(false);
-    };
-
-    // Start listening
-    try {
-      logger.info(COMPONENT, 'Attempting to start recognition');
-      recognition.start();
-      recognition._isActive = true;
-      logger.success(COMPONENT, 'Recognition started successfully');
-      
-      toast.info("🎤 Listening... Speak now.", {
-        style: { background: "#2B4735", color: "#FFF3EF" },
-        progressStyle: { background: "#A964FF" },
-        autoClose: 3000,
-      });
-    } catch (error) {
-      logger.error(COMPONENT, 'Failed to start recognition', error);
-      setIsListening(false);
-      toast.error("Failed to start voice recognition. Please try again.", {
+    } catch (permErr: any) {
+      const name = permErr?.name || "";
+      let msg = "Microphone access is required for voice input.";
+      if (name === "NotAllowedError") msg = "Microphone access denied.";
+      if (name === "NotFoundError") msg = "No microphone found.";
+      if (name === "NotReadableError") msg = "Microphone in use by another app.";
+      toast.error(msg, {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
         progressStyle: { background: "#BD4D23" },
       });
+      setVoiceSupported(false);
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      const r = initSpeechRecognition();
+      if (!r) return;
+      recognitionRef.current = r;
+    }
+    try { if (recognitionRef.current._isActive) recognitionRef.current.abort(); } catch {}
+
+    const recognition = recognitionRef.current;
+    recognition.onstart = () => { setIsListening(true); setTranscript(""); };
+    recognition.onspeechend = () => {
+      setTimeout(() => {
+        try {
+          recognitionRef.current?.stop();
+          if (recognitionRef.current) recognitionRef.current._isActive = false;
+        } catch {}
+        setIsListening(false);
+      }, 800);
+    };
+    recognition.onnomatch = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      let fin = "", interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const r = event.results[i];
+        if (r.isFinal) fin += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      if (interim) { setInput(interim); setTranscript(interim); }
+      if (fin) {
+        setInput(fin);
+        setTranscript(fin);
+        setIsListening(false);
+        setTimeout(() => { if (fin.trim()) handleSend(fin.trim()); }, 300);
+      }
+    };
+    recognition.onerror = (event: any) => {
+      setIsListening(false);
+      if (event.error === "no-speech") {
+        toast.info("No speech detected.", {
+          style: { background: "#2B4735", color: "#FFF3EF" },
+          progressStyle: { background: "#A964FF" },
+          autoClose: 2000,
+        });
+      } else if (event.error !== "aborted") {
+        toast.error(`Voice error: ${event.error}`, {
+          style: { background: "#4A2B2B", color: "#FFF3EF" },
+          progressStyle: { background: "#BD4D23" },
+        });
+      }
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (recognitionRef.current) recognitionRef.current._isActive = false;
+    };
+
+    try {
+      recognition.start();
+      recognition._isActive = true;
+      toast.info("🎤 Listening...", {
+        style: { background: "#2B4735", color: "#FFF3EF" },
+        progressStyle: { background: "#A964FF" },
+        autoClose: 2000,
+      });
+    } catch {
+      setIsListening(false);
     }
   };
 
-  // ─── Stop voice recognition ──────────────────────────────────
   const stopListening = () => {
-    logger.info(COMPONENT, 'Stopping voice recognition');
-    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
         recognitionRef.current._isActive = false;
-        logger.success(COMPONENT, 'Recognition stopped successfully');
-      } catch (e) {
-        logger.warn(COMPONENT, 'Error stopping recognition', e);
-        try {
-          recognitionRef.current.stop();
-          recognitionRef.current._isActive = false;
-          logger.success(COMPONENT, 'Recognition stopped via stop()');
-        } catch (err) {
-          logger.error(COMPONENT, 'Failed to stop recognition', err);
-        }
+      } catch {
+        try { recognitionRef.current.stop(); recognitionRef.current._isActive = false; } catch {}
       }
-    } else {
-      logger.warn(COMPONENT, 'No recognition instance to stop');
     }
-    
     setIsListening(false);
   };
 
-  // ─── Toggle voice listening ──────────────────────────────────
-  const toggleListening = () => {
-    logger.info(COMPONENT, 'toggleListening called', { currentState: isListening });
-    
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
-  };
+  const toggleListening = () => (isListening ? stopListening() : startListening());
 
-  // ─── Clean markdown ───────────────────────────────────────────
-  const cleanMarkdown = (text: string): string => {
-    if (!text) return "";
-    let cleaned = text;
-    cleaned = cleaned.replace(/<br\s*\/?>/gi, "\n");
-    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-    return cleaned;
-  };
+  const cleanMarkdown = (text: string): string =>
+    !text ? "" : text.replace(/<br\s*\/?>/gi, "\n").replace(/\n{3,}/g, "\n\n");
 
-  // ─── Convert markdown to HTML ────────────────────────────────
   const renderMarkdown = (content: string): string => {
-    try {
-      return marked(content);
-    } catch (e) {
-      logger.error(COMPONENT, 'Markdown parsing error', e);
-      return content;
-    }
+    try { return marked(content) as string; } catch { return content; }
   };
 
-  // ─── Copy to clipboard ─────────────────────────────────────────
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      logger.success(COMPONENT, 'Copied to clipboard');
-      toast.success("Copied to clipboard!", {
+      toast.success("Copied!", {
         style: { background: "#2B4735", color: "#FFF3EF" },
         progressStyle: { background: "#A964FF" },
       });
-    } catch (error) {
-      logger.error(COMPONENT, 'Failed to copy to clipboard', error);
+    } catch {
       toast.error("Failed to copy.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
         progressStyle: { background: "#BD4D23" },
@@ -510,64 +529,33 @@ export default function GroqChatPageWrapper() {
     }
   };
 
-  // ─── Print ─────────────────────────────────────────────────────
-  const handlePrint = () => {
-    logger.info(COMPONENT, 'Print requested');
-    window.print();
-  };
+  const handlePrint = () => { stopSpeaking(); window.print(); };
 
-  // ─── Send message ──────────────────────────────────────────────
   const handleSend = async (query?: string) => {
     const messageText = query || input.trim();
-    logger.info(COMPONENT, 'handleSend called', { 
-      hasQuery: !!query,
-      messageLength: messageText.length,
-      isLoading 
-    });
-    
-    if (!messageText || isLoading) {
-      logger.warn(COMPONENT, 'Send blocked', { 
-        isEmpty: !messageText, 
-        isLoading 
-      });
-      return;
-    }
+    if (!messageText || isLoading) return;
+    if (isListening) stopListening();
+    stopSpeaking();
 
-    // Stop listening if active
-    if (isListening) {
-      logger.info(COMPONENT, 'Stopping listening before sending');
-      stopListening();
-    }
-
-    const userMessage: Message = { role: "user", content: messageText };
+    const userMessage: Message = {
+      role: "user",
+      content: messageText,
+      createdAt: new Date().toISOString(),
+    };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
     setStreamingMessage("");
-    
-    logger.info(COMPONENT, 'Sending message to API', { 
-      messageCount: messages.length + 1,
-      messagePreview: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : '')
-    });
 
     try {
       const response = await fetch("/api/admin/dashboard/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages, userMessage].map(({ role, content }) => ({
-            role,
-            content,
-          })),
+          messages: [...messages, userMessage].map(({ role, content }) => ({ role, content })),
         }),
       });
-
-      if (!response.ok) {
-        logger.error(COMPONENT, 'API response not OK', { status: response.status });
-        throw new Error(`Failed to get response: ${response.status}`);
-      }
-
-      logger.success(COMPONENT, 'API response received, starting stream');
+      if (!response.ok) throw new Error(`Failed: ${response.status}`);
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -575,49 +563,37 @@ export default function GroqChatPageWrapper() {
 
       let done = false;
       let accumulated = "";
-
       while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
+        const { value, done: dr } = await reader.read();
+        done = dr;
         const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-        
-        for (const line of lines) {
+        for (const line of chunk.split("\n")) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === "[DONE]") {
-              logger.info(COMPONENT, 'Stream complete');
-              done = true;
-              break;
-            }
+            if (data === "[DONE]") { done = true; break; }
             try {
               const parsed = JSON.parse(data);
               if (parsed.content) {
                 accumulated += parsed.content;
                 setStreamingMessage(cleanMarkdown(accumulated));
               }
-            } catch (e) {
-              logger.debug(COMPONENT, 'Error parsing stream data', e);
-            }
+            } catch {}
           }
         }
       }
 
       if (accumulated) {
-        logger.success(COMPONENT, 'Message received successfully', {
-          length: accumulated.length
-        });
+        const finalText = cleanMarkdown(accumulated);
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: cleanMarkdown(accumulated) },
+          { role: "assistant", content: finalText, createdAt: new Date().toISOString() },
         ]);
-      } else {
-        logger.warn(COMPONENT, 'No content received from API');
+        speakText(finalText);
       }
       setStreamingMessage("");
     } catch (error) {
-      logger.error(COMPONENT, 'Chat error', error);
-      toast.error("Failed to get response from AI.", {
+      logger.error(COMPONENT, "Chat error", error);
+      toast.error("Failed to get response.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
         progressStyle: { background: "#BD4D23" },
       });
@@ -626,48 +602,49 @@ export default function GroqChatPageWrapper() {
         {
           role: "assistant",
           content: "I'm sorry, I encountered an error. Please try again.",
+          createdAt: new Date().toISOString(),
         },
       ]);
     } finally {
       setIsLoading(false);
       setStreamingMessage("");
-      logger.debug(COMPONENT, 'Loading state reset');
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      logger.debug(COMPONENT, 'Enter key pressed, sending message');
       handleSend();
     }
   };
 
   const clearChat = () => {
-    if (messages.length <= 1) {
-      logger.debug(COMPONENT, 'Chat clear blocked - only system message exists');
-      return;
-    }
-    logger.info(COMPONENT, 'Clearing chat', { messageCount: messages.length });
+    stopSpeaking();
+    if (messages.length <= 1) return;
     setMessages([
       {
         role: "assistant",
         content: "Chat cleared. How can I help you today?",
+        createdAt: new Date().toISOString(),
       },
     ]);
   };
 
-  const toggleMinimize = () => {
-    logger.debug(COMPONENT, 'Toggle minimize', { current: isMinimized });
-    setIsMinimized(!isMinimized);
-  };
-  
-  const closeChat = () => {
-    logger.info(COMPONENT, 'Closing chat');
-    setIsVisible(false);
+  const toggleMinimize = () => { stopSpeaking(); setIsMinimized(!isMinimized); };
+  const closeChat = () => { stopSpeaking(); stopListening(); setIsVisible(false); };
+
+  const toggleTts = () => {
+    const next = !ttsEnabled;
+    setTtsEnabled(next);
+    if (!next) stopSpeaking();
+    toast.info(next ? "Voice replies enabled" : "Voice replies muted", {
+      style: { background: "#2B4735", color: "#FFF3EF" },
+      progressStyle: { background: "#A964FF" },
+      autoClose: 1500,
+    });
   };
 
-  // ─── Placeholder when closed ──────────────────────────────────
+  // ─── Closed placeholder ────────────────────────────────────────
   if (!isVisible) {
     return (
       <motion.div
@@ -678,25 +655,18 @@ export default function GroqChatPageWrapper() {
       >
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-white mb-4"
-          style={{
-            background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
-          }}
+          style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
         >
           <SparklesIcon className="w-8 h-8" />
         </div>
         <h3 className="text-xl font-semibold text-gray-800 mb-2">Chat Closed</h3>
         <p className="text-gray-500 text-sm max-w-md">
-          RAZAB AI Assistant is currently closed. Click the button below to reopen and continue your conversation.
+          RAZAB AI Assistant is currently closed. Click the button below to reopen.
         </p>
         <button
-          onClick={() => {
-            logger.info(COMPONENT, 'Reopening chat from closed state');
-            setIsVisible(true);
-          }}
+          onClick={() => setIsVisible(true)}
           className="mt-6 px-6 py-2.5 text-white rounded-xl hover:shadow-lg transition"
-          style={{
-            background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
-          }}
+          style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
         >
           Reopen Chat
         </button>
@@ -704,14 +674,9 @@ export default function GroqChatPageWrapper() {
           initial={{ scale: 0, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-          onClick={() => {
-            logger.info(COMPONENT, 'Reopening chat from FAB');
-            setIsVisible(true);
-          }}
+          onClick={() => setIsVisible(true)}
           className="fixed bottom-8 right-8 z-50 p-4 rounded-full text-white shadow-2xl hover:shadow-xl transition"
-          style={{
-            background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
-          }}
+          style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
         >
           <SparklesIcon className="w-6 h-6" />
         </motion.button>
@@ -719,109 +684,32 @@ export default function GroqChatPageWrapper() {
     );
   }
 
-  // ─── Main chat panel ──────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────
   return (
     <>
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden;
-          }
-          #chat-to-print,
-          #chat-to-print * {
-            visibility: visible;
-          }
+          body * { visibility: hidden; }
+          #chat-to-print, #chat-to-print * { visibility: visible; }
           #chat-to-print {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: white;
-            padding: 2rem;
-            overflow: auto;
+            position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+            background: white; padding: 2rem; overflow: auto;
           }
-          #chat-to-print .no-print {
-            display: none !important;
-          }
-          #chat-to-print .message-bubble {
-            border: 1px solid #ddd;
-            margin-bottom: 1rem;
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-          }
-          #chat-to-print .assistant-message {
-            background: #f9f9f9;
-          }
-          #chat-to-print .user-message {
-            background: #fff3ef;
-          }
+          #chat-to-print .no-print { display: none !important; }
         }
-
-        /* Markdown styles for assistant messages */
-        .assistant-content {
-          font-size: 0.875rem;
-          line-height: 1.6;
-          color: #1f2937;
-        }
-        .assistant-content table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 1rem 0;
-          font-size: 0.875rem;
-        }
-        .assistant-content th,
-        .assistant-content td {
-          border: 1px solid #d1d5db;
-          padding: 0.5rem 0.75rem;
-          text-align: left;
-        }
-        .assistant-content th {
-          background-color: #f3f4f6;
-          font-weight: 600;
-        }
-        .assistant-content tbody tr:nth-child(even) {
-          background-color: #f9fafb;
-        }
-        .assistant-content ul,
-        .assistant-content ol {
-          padding-left: 1.5rem;
-          margin: 0.5rem 0;
-        }
-        .assistant-content li {
-          margin: 0.25rem 0;
-        }
-        .assistant-content p {
-          margin: 0.5rem 0;
-        }
-        .assistant-content strong {
-          font-weight: 600;
-          color: #111827;
-        }
-        .assistant-content hr {
-          border: none;
-          border-top: 1px solid #e5e7eb;
-          margin: 1rem 0;
-        }
-        .assistant-content pre {
-          background: #f3f4f6;
-          padding: 1rem;
-          border-radius: 0.5rem;
-          overflow-x: auto;
-          font-size: 0.8rem;
-        }
-        .assistant-content code {
-          background: #f3f4f6;
-          padding: 0.125rem 0.375rem;
-          border-radius: 0.25rem;
-          font-size: 0.8rem;
-        }
-        .assistant-content blockquote {
-          border-left: 4px solid #d1d5db;
-          padding-left: 1rem;
-          margin: 0.5rem 0;
-          color: #4b5563;
-        }
+        .assistant-content { font-size: 0.875rem; line-height: 1.6; color: #1f2937; }
+        .assistant-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+        .assistant-content th, .assistant-content td { border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; }
+        .assistant-content th { background-color: #f3f4f6; font-weight: 600; }
+        .assistant-content tbody tr:nth-child(even) { background-color: #f9fafb; }
+        .assistant-content ul, .assistant-content ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+        .assistant-content li { margin: 0.25rem 0; }
+        .assistant-content p { margin: 0.5rem 0; }
+        .assistant-content strong { font-weight: 600; color: #111827; }
+        .assistant-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
+        .assistant-content pre { background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.8rem; }
+        .assistant-content code { background: #f3f4f6; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8rem; }
+        .assistant-content blockquote { border-left: 4px solid #d1d5db; padding-left: 1rem; margin: 0.5rem 0; color: #4b5563; }
       `}</style>
 
       <AnimatePresence mode="wait">
@@ -836,35 +724,70 @@ export default function GroqChatPageWrapper() {
           }`}
           id="chat-to-print"
         >
-          {/* ─── Header ────────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-gradient-to-r from-[#FFF3EF] to-white flex-shrink-0 no-print">
+          {/* Header */}
+          <div className="flex items-center justify-between p-3 pl-16 sm:pl-20 lg:pl-3 border-b border-gray-100 bg-gradient-to-r from-[#FFF3EF] to-white flex-shrink-0 no-print">
             <div className="flex items-center gap-3">
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-                style={{
-                  background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
-                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white flex-shrink-0 relative"
+                style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
               >
                 <SparklesIcon className="w-4 h-4" />
+                {isSpeaking && (
+                  <motion.span
+                    className="absolute inset-0 rounded-full"
+                    style={{ border: `2px solid ${COLORS.burntRust}` }}
+                    initial={{ scale: 1, opacity: 0.7 }}
+                    animate={{ scale: 1.8, opacity: 0 }}
+                    transition={{ duration: 1.2, repeat: Infinity }}
+                  />
+                )}
               </div>
-              <div>
-                <h2 className="font-semibold text-gray-800 text-sm">RAZAB AI Assistant</h2>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <h2 className="font-semibold text-gray-800 text-sm truncate">RAZAB AI Assistant</h2>
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-500" : "bg-red-500"}`} />
-                  <span className="text-[10px] text-gray-400">
-                    {isOnline ? "Online" : "Offline"}
-                  </span>
-                  {voiceSupported !== null && (
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      voiceSupported ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                    }`}>
-                      {voiceSupported ? "🎤 Voice Ready" : "🚫 No Voice"}
+                  <span className="text-[10px] text-gray-400">{isOnline ? "Online" : "Offline"}</span>
+                  {isListening && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 flex items-center gap-1">
+                      <VoiceVisualizer active color={COLORS.burntRust} />
+                      Listening
+                    </span>
+                  )}
+                  {isSpeaking && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                      <VoiceVisualizer active color="#059669" />
+                      Speaking
                     </span>
                   )}
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {ttsSupported && (
+                <button
+                  onClick={toggleTts}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    ttsEnabled ? "text-emerald-600 hover:bg-emerald-50" : "text-gray-400 hover:bg-gray-100"
+                  }`}
+                  title={ttsEnabled ? "Mute voice replies" : "Enable voice replies"}
+                >
+                  {ttsEnabled ? <SpeakerWaveIcon className="w-4 h-4" /> : <SpeakerXMarkIcon className="w-4 h-4" />}
+                </button>
+              )}
+              <AnimatePresence>
+                {isSpeaking && (
+                  <motion.button
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    onClick={stopSpeaking}
+                    className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                    title="Stop speaking"
+                  >
+                    <PauseIcon className="w-4 h-4" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
               <button
                 onClick={handlePrint}
                 className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
@@ -884,11 +807,7 @@ export default function GroqChatPageWrapper() {
                 className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
                 title={isMinimized ? "Expand" : "Minimize"}
               >
-                {isMinimized ? (
-                  <ArrowsPointingOutIcon className="w-4 h-4" />
-                ) : (
-                  <ArrowsPointingInIcon className="w-4 h-4" />
-                )}
+                {isMinimized ? <ArrowsPointingOutIcon className="w-4 h-4" /> : <ArrowsPointingInIcon className="w-4 h-4" />}
               </button>
               <button
                 onClick={closeChat}
@@ -904,17 +823,14 @@ export default function GroqChatPageWrapper() {
             <div className="flex-1" />
           ) : (
             <>
-              {/* ─── Quick Actions ──────────────────────────────────────── */}
+              {/* Quick actions */}
               <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50/80 border-b border-gray-100 flex-shrink-0 no-print">
                 {QUICK_ACTIONS.map((action, idx) => {
                   const Icon = action.icon;
                   return (
                     <button
                       key={idx}
-                      onClick={() => {
-                        logger.debug(COMPONENT, 'Quick action clicked', { action: action.label });
-                        handleSend(action.query);
-                      }}
+                      onClick={() => handleSend(action.query)}
                       disabled={isLoading}
                       className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 bg-white border border-gray-200 rounded-full hover:border-[#A5421D] hover:text-[#A5421D] transition-colors disabled:opacity-50"
                     >
@@ -925,47 +841,89 @@ export default function GroqChatPageWrapper() {
                 })}
               </div>
 
-              {/* ─── Messages ────────────────────────────────────────────── */}
+              {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
-                {messages.map((msg, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm ${
-                        msg.role === "user"
-                          ? "bg-[#A5421D] text-white rounded-br-none"
-                          : "bg-white text-gray-800 rounded-bl-none border border-gray-200"
-                      }`}
-                    >
-                      {msg.role === "assistant" ? (
-                        <>
-                          <div
-                            className="assistant-content"
-                            dangerouslySetInnerHTML={{
-                              __html: renderMarkdown(cleanMarkdown(msg.content)),
-                            }}
-                          />
-                          <button
-                            onClick={() => copyToClipboard(msg.content)}
-                            className="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1 no-print cursor-pointer"
-                          >
-                            <ClipboardDocumentIcon className="w-3.5 h-3.5" />
-                            Copy
-                          </button>
-                        </>
-                      ) : (
-                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                          {msg.content}
-                        </p>
+                {messages.map((msg, idx) => {
+                  const prev = idx > 0 ? messages[idx - 1] : null;
+                  const showDivider = !prev || !sameDay(prev.createdAt, msg.createdAt);
+                  return (
+                    <div key={idx}>
+                      {showDivider && msg.createdAt && (
+                        <DateDivider label={formatDayLabel(msg.createdAt)} />
                       )}
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm relative group ${
+                            msg.role === "user"
+                              ? "bg-[#A5421D] text-white rounded-br-none"
+                              : "bg-white text-gray-800 rounded-bl-none border border-gray-200"
+                          }`}
+                        >
+                          {msg.role === "assistant" ? (
+                            <>
+                              <div
+                                className="assistant-content"
+                                dangerouslySetInnerHTML={{
+                                  __html: renderMarkdown(cleanMarkdown(msg.content)),
+                                }}
+                              />
+                              <div className="mt-2 flex items-center justify-between gap-3 no-print">
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={() => copyToClipboard(msg.content)}
+                                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+                                    Copy
+                                  </button>
+                                  {ttsSupported && (
+                                    <button
+                                      onClick={() => speakText(msg.content)}
+                                      className="text-xs text-gray-400 hover:text-emerald-600 transition-colors flex items-center gap-1 cursor-pointer"
+                                      title="Read aloud"
+                                    >
+                                      <SpeakerWaveIcon className="w-3.5 h-3.5" />
+                                      Read
+                                    </button>
+                                  )}
+                                </div>
+                                {msg.createdAt && (
+                                  <span
+                                    className="text-[10px] text-gray-400/90 whitespace-nowrap"
+                                    title={formatFullTimestamp(msg.createdAt)}
+                                  >
+                                    {formatBubbleTime(msg.createdAt)}
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                {msg.content}
+                              </p>
+                              {msg.createdAt && (
+                                <div className="mt-1 flex justify-end">
+                                  <span
+                                    className="text-[10px] text-white/70 whitespace-nowrap"
+                                    title={formatFullTimestamp(msg.createdAt)}
+                                  >
+                                    {formatBubbleTime(msg.createdAt)}
+                                  </span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </motion.div>
                     </div>
-                  </motion.div>
-                ))}
+                  );
+                })}
 
                 {streamingMessage && (
                   <motion.div
@@ -976,18 +934,21 @@ export default function GroqChatPageWrapper() {
                     <div className="max-w-[85%] px-4 py-3 rounded-2xl bg-white text-gray-800 rounded-bl-none border border-gray-200 shadow-sm">
                       <div
                         className="assistant-content"
-                        dangerouslySetInnerHTML={{
-                          __html: renderMarkdown(streamingMessage),
-                        }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingMessage) }}
                       />
-                      <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-1" />
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse" />
+                        <span className="text-[10px] text-gray-400">
+                          {formatTime(new Date().toISOString())}
+                        </span>
+                      </div>
                     </div>
                   </motion.div>
                 )}
 
                 {isLoading && !streamingMessage && (
                   <div className="flex justify-start">
-                    <div className="px-4 py-3 rounded-2xl bg-white text-gray-800 rounded-bl-none border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 rounded-2xl bg-white border border-gray-200 shadow-sm">
                       <div className="flex gap-1">
                         <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                         <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -1000,66 +961,78 @@ export default function GroqChatPageWrapper() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ─── Input ────────────────────────────────────────────────── */}
+              {/* Input */}
               <div className="p-4 border-t border-gray-100 bg-white flex-shrink-0 no-print">
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   <input
                     ref={inputRef}
                     type="text"
                     value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      logger.debug(COMPONENT, 'Input changed', { 
-                        length: e.target.value.length 
-                      });
-                    }}
+                    onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={isListening ? "🎤 Listening..." : "Ask me anything about the platform..."}
+                    placeholder={
+                      isListening
+                        ? "Listening..."
+                        : isSpeaking
+                        ? "Speaking..."
+                        : "Ask me anything about the platform..."
+                    }
                     disabled={isLoading || isListening}
-                    className={`flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#A5421D] focus:border-transparent outline-none text-sm ${
-                      isListening ? "bg-red-50 border-red-300 animate-pulse" : "bg-gray-50"
+                    className={`flex-1 px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-[#A5421D] focus:border-transparent outline-none text-sm transition-colors ${
+                      isListening
+                        ? "bg-red-50 border-red-300"
+                        : isSpeaking
+                        ? "bg-emerald-50 border-emerald-300"
+                        : "bg-gray-50 border-gray-200"
                     }`}
                   />
-                  {/* ─── Voice button ────────────────────────────────────── */}
-                  <button
-                    onClick={() => {
-                      logger.debug(COMPONENT, 'Voice button clicked', { isListening });
-                      toggleListening();
-                    }}
-                    disabled={isLoading || voiceSupported === false}
-                    className={`px-3 py-2.5 rounded-xl transition-all ${
-                      isListening
-                        ? "bg-red-500 text-white scale-110 shadow-lg"
-                        : voiceSupported === false
-                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                        : "bg-gray-200 text-gray-600 hover:bg-gray-300 hover:scale-105"
-                    } disabled:opacity-50`}
+                  <MicOrb
+                    listening={isListening}
+                    speaking={false}
+                    color={isListening ? "#ef4444" : COLORS.burntRust}
+                    onClick={toggleListening}
                     title={isListening ? "Stop listening" : voiceSupported ? "Voice input" : "Voice not supported"}
                   >
-                    {isListening ? (
+                    {isListening ? <VoiceVisualizer active color="#ffffff" /> : <MicrophoneIcon className="w-5 h-5" />}
+                  </MicOrb>
+                  {isSpeaking && (
+                    <MicOrb
+                      listening={false}
+                      speaking={true}
+                      color="#059669"
+                      onClick={stopSpeaking}
+                      title="Stop speaking"
+                    >
                       <StopIcon className="w-5 h-5" />
-                    ) : (
-                      <MicrophoneIcon className="w-5 h-5" />
-                    )}
-                  </button>
+                    </MicOrb>
+                  )}
                   <button
-                    onClick={() => {
-                      logger.debug(COMPONENT, 'Send button clicked');
-                      handleSend();
-                    }}
+                    onClick={() => handleSend()}
                     disabled={isLoading || !input.trim() || isListening}
-                    className="px-4 py-2.5 bg-[#A5421D] text-white rounded-xl hover:bg-[#8a3618] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2.5 bg-[#A5421D] text-white rounded-xl hover:bg-[#8a3618] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                   >
                     <PaperAirplaneIcon className="w-5 h-5" />
                   </button>
                 </div>
                 <div className="flex justify-between items-center mt-2 no-print">
-                  <p className="text-[10px] text-gray-400">
-                    RAZAB AI – Admin Assistant • v1.0
-                  </p>
-                  <p className="text-[10px] text-gray-400">
-                    {isListening ? "🎤 Listening..." : voiceSupported ? "Powered by Groq" : "Voice: Not Supported"}
-                  </p>
+                  <p className="text-[10px] text-gray-400">RAZAB AI – Admin Assistant • v1.0</p>
+                  <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                    {isListening && (
+                      <span className="flex items-center gap-1 text-red-500">
+                        <VoiceVisualizer active color="#ef4444" />
+                        Listening
+                      </span>
+                    )}
+                    {isSpeaking && (
+                      <span className="flex items-center gap-1 text-emerald-600">
+                        <VoiceVisualizer active color="#059669" />
+                        Speaking
+                      </span>
+                    )}
+                    {!isListening && !isSpeaking && (
+                      <span>{ttsSupported ? "Powered by Groq" : "Voice: Not Supported"}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </>

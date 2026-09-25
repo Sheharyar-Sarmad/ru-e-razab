@@ -397,7 +397,7 @@ const RecentItem = ({
   const poetName = item.takhallus || "Unknown";
   const date = item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "N/A";
   const slug = item.slug;
-  const href = slug ? `/admin/dashboard/kalam/${type.toLowerCase()}/${slug}` : "#";
+  const href = slug ? `/kalam/${type.toLowerCase()}/${slug}` : "#";
 
   return (
     <motion.div

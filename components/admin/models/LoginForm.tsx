@@ -14,6 +14,7 @@ import {
   UserIcon,
 } from "@heroicons/react/24/outline";
 import axios from "axios";
+import Link from "next/link";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -217,13 +218,13 @@ export default function LoginForm() {
 
           <p className="text-center text-sm text-gray-500">
             Don't have an account?{" "}
-            <a
-              href="/admin/signup"
+            <Link
+              href="/admin/sign-up"
               className="font-medium transition-colors hover:underline"
               style={{ color: "#9F3F1C" }}
             >
               Sign up
-            </a>
+            </Link>
           </p>
         </form>
       </motion.div>

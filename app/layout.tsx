@@ -1,5 +1,6 @@
 import { Outfit, Noto_Nastaliq_Urdu } from "next/font/google";
 import "./globals.css";
+import LayoutProvider from "@/components/client/layout/LayoutProvider";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -19,10 +20,16 @@ export const metadata = {
   description: "Admin Panel",
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="ur" className={`${outfit.variable} ${notoNastaliq.variable}`}>
-      <body>{children}</body>
+      <body className="font-sans bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col">
+        <LayoutProvider>{children}</LayoutProvider>
+      </body>
     </html>
   );
 }

@@ -39,7 +39,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
 
-  // ─── Form fields ──────────────────────────────────────────────
+  // Form fields
   const [firstname, setFirstname] = useState("");
   const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
@@ -48,7 +48,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // ─── Populate form when admin data loads ─────────────────────
+  // Populate form when admin data loads
   useEffect(() => {
     if (admin) {
       setFirstname(admin.firstname || "");
@@ -58,7 +58,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
     }
   }, [admin]);
 
-  // ─── Handle form submission ──────────────────────────────────
+  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -106,7 +106,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
     try {
       const response = await axios.patch(
         "/api/admin/dashboard/settings/account/update",
-        updateData
+        updateData,
       );
 
       if (response.data.success) {
@@ -127,7 +127,8 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         router.refresh();
       }
     } catch (error: any) {
-      const message = error.response?.data?.message || "Failed to update account.";
+      const message =
+        error.response?.data?.message || "Failed to update account.";
       toast.error(message, {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
         progressStyle: { background: "#BD4D23" },
@@ -156,12 +157,17 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         toastClassName="custom-toast"
       />
 
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto pt-16 sm:pt-20 lg:pt-0">
         <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold" style={{ color: COLORS.deepForest }}>
+          <h1
+            className="text-2xl md:text-3xl md:mb-8 font-bold"
+            style={{ color: COLORS.deepForest }}
+          >
             Account Settings
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Update your admin account information</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Update your admin account information
+          </p>
         </div>
 
         <motion.div
@@ -171,7 +177,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8"
         >
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* ─── Account Name (read‑only) ───────────────────────────── */}
+            {/* Account Name (read‑only) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Account Name
@@ -185,10 +191,12 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                   className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm cursor-not-allowed"
                 />
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">Account name cannot be changed.</p>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Account name cannot be changed.
+              </p>
             </div>
 
-            {/* ─── First & Last Name ───────────────────────────────────── */}
+            {/* First & Last Name */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -218,7 +226,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               </div>
             </div>
 
-            {/* ─── Email ────────────────────────────────────────────────── */}
+            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Email Address {required}
@@ -236,11 +244,13 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               </div>
             </div>
 
-            {/* ─── Phone Number ────────────────────────────────────────── */}
+            {/* Phone Number */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Phone Number
-                <span className="text-gray-400 text-xs ml-1">(optional, use +923001234567 format)</span>
+                <span className="text-gray-400 text-xs ml-1">
+                  (optional, use +923001234567 format)
+                </span>
               </label>
               <div className="relative">
                 <PhoneIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -256,9 +266,11 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
 
             <hr className="border-gray-200" />
 
-            {/* ─── Password Section ─────────────────────────────────────── */}
+            {/* Password Section */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-4">Change Password</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">
+                Change Password
+              </h3>
               <div className="space-y-4">
                 {newPassword && (
                   <div>
@@ -277,7 +289,9 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                       />
                       <button
                         type="button"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        onClick={() =>
+                          setShowCurrentPassword(!showCurrentPassword)
+                        }
                         className="absolute right-3 top-1/2 -translate-y-1/2"
                       >
                         {showCurrentPassword ? (
@@ -293,7 +307,9 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     New Password
-                    <span className="text-gray-400 text-xs ml-1">(leave blank to keep current)</span>
+                    <span className="text-gray-400 text-xs ml-1">
+                      (leave blank to keep current)
+                    </span>
                   </label>
                   <div className="relative">
                     <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -317,7 +333,8 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                     </button>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1">
-                    Password must be at least 8 characters with uppercase, lowercase, number, and special character.
+                    Password must be at least 8 characters with uppercase,
+                    lowercase, number, and special character.
                   </p>
                 </div>
 
@@ -342,7 +359,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               </div>
             </div>
 
-            {/* ─── Submit ───────────────────────────────────────────────── */}
+            {/* Submit */}
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
               <button
                 type="button"
@@ -382,10 +399,20 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
           </form>
         </motion.div>
 
-        {/* ─── Account Info Footer ────────────────────────────────────── */}
+        {/* Account Info Footer */}
         <div className="mt-6 text-xs text-gray-400 text-center space-y-1">
-          <p>Account created: {admin?.createdAt ? new Date(admin.createdAt).toLocaleDateString() : "—"}</p>
-          <p>Last updated: {admin?.updatedAt ? new Date(admin.updatedAt).toLocaleDateString() : "—"}</p>
+          <p>
+            Account created:{" "}
+            {admin?.createdAt
+              ? new Date(admin.createdAt).toLocaleDateString()
+              : "—"}
+          </p>
+          <p>
+            Last updated:{" "}
+            {admin?.updatedAt
+              ? new Date(admin.updatedAt).toLocaleDateString()
+              : "—"}
+          </p>
         </div>
       </div>
 
@@ -394,24 +421,24 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
           border-radius: 12px !important;
         }
         .custom-toast .Toastify__toast--success {
-          background: #2B4735 !important;
-          color: #FFF3EF !important;
+          background: #2b4735 !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__toast--success .Toastify__progress-bar {
-          background: #A964FF !important;
+          background: #a964ff !important;
         }
         .custom-toast .Toastify__toast--error {
-          background: #4A2B2B !important;
-          color: #FFF3EF !important;
+          background: #4a2b2b !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__toast--error .Toastify__progress-bar {
-          background: #BD4D23 !important;
+          background: #bd4d23 !important;
         }
         .custom-toast .Toastify__toast-body {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__close-button {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
       `}</style>
     </>

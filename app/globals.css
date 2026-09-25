@@ -12,9 +12,76 @@ body {
 
 /* Utility classes for selective use */
 .font-urdu {
-  font-family: var(--font-urdu);
-  direction: rtl; /* for proper Urdu rendering */
+  font-family: var(--font-urdu), "Noto Nastaliq Urdu", serif;
+  direction: rtl;
+  text-align: center;
 }
 .font-outfit {
   font-family: var(--font-outfit);
+}
+
+@layer base {
+  :root {
+    --background: #FFF7F5;
+    --foreground: #1A090D;
+
+    --card: #FFF7F5;
+    --card-foreground: #1A090D;
+
+    --popover: #FFF7F5;
+    --popover-foreground: #1A090D;
+
+    --primary: #E5383B;
+    --primary-foreground: #FFF7F5;
+
+    --secondary: #D9572B;
+    --secondary-foreground: #FFF7F5;
+
+    --muted: #F4C2C2;
+    --muted-foreground: #A4161A;
+
+    --accent: #F3A738;
+    --accent-foreground: #1A090D;
+
+    --destructive: #660708;
+    --destructive-foreground: #FFF7F5;
+
+    --border: #F4C2C2;
+    --input: #F4C2C2;
+    --ring: #E5383B;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: #1A090D;
+    --foreground: #FFF7F5;
+
+    --card: #1A090D;
+    --card-foreground: #FFF7F5;
+
+    --popover: #1A090D;
+    --popover-foreground: #FFF7F5;
+
+    --primary: #E5383B;
+    --primary-foreground: #FFF7F5;
+
+    --secondary: #D9572B;
+    --secondary-foreground: #FFF7F5;
+
+    --muted: #660708;
+    --muted-foreground: #F4C2C2;
+
+    --accent: #F3A738;
+    --accent-foreground: #1A090D;
+
+    --border: #A4161A;
+    --input: #A4161A;
+    --ring: #E5383B;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-outfit), sans-serif;
 }
