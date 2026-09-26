@@ -84,7 +84,6 @@ export async function POST(request: NextRequest) {
         avgLikes,
         totalComments,
         avgComments,
-        topViewed,
         topLiked,
         topCommented,
         categoryStats,
@@ -97,7 +96,6 @@ export async function POST(request: NextRequest) {
         Model.aggregate([{ $project: { likesCount: { $size: "$likes" } } }, { $group: { _id: null, avg: { $avg: "$likesCount" } } }]).then(r => r[0]?.avg || 0),
         Model.aggregate([{ $project: { commentsCount: { $size: "$comments" } } }, { $group: { _id: null, total: { $sum: "$commentsCount" } } }]).then(r => r[0]?.total || 0),
         Model.aggregate([{ $project: { commentsCount: { $size: "$comments" } } }, { $group: { _id: null, avg: { $avg: "$commentsCount" } } }]).then(r => r[0]?.avg || 0),
-        Model.find().sort({ views: -1 }).limit(5).select("content.0.lines.0 takhallus views").lean().then(docs => docs.map(d => ({ firstLine: d.content?.[0]?.lines?.[0] || "Untitled", takhallus: d.takhallus, views: d.views }))),
         Model.aggregate([
           { $addFields: { likesCount: { $size: "$likes" } } },
           { $sort: { likesCount: -1 } },

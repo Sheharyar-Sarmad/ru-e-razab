@@ -8,9 +8,12 @@
 /* 👇 Outfit is applied globally by default */
 body {
   font-family: var(--font-outfit);
+  overflow-x: hidden;
 }
 
-/* Utility classes for selective use */
+/* =========================================================
+   UTILITY CLASSES
+========================================================= */
 .font-urdu {
   font-family: var(--font-urdu), "Noto Nastaliq Urdu", serif;
   direction: rtl;
@@ -20,6 +23,9 @@ body {
   font-family: var(--font-outfit);
 }
 
+/* =========================================================
+   THEME TOKENS
+========================================================= */
 @layer base {
   :root {
     --background: #FFF7F5;
@@ -50,6 +56,13 @@ body {
     --input: #F4C2C2;
     --ring: #E5383B;
     --radius: 0.75rem;
+
+    /* Scrollbar tokens */
+    --scrollbar-track: #1A090D;
+    --scrollbar-thumb-start: #EA580C;
+    --scrollbar-thumb-end: #9A3412;
+    --scrollbar-thumb-hover-start: #F97316;
+    --scrollbar-thumb-hover-end: #C2410C;
   }
 
   .dark {
@@ -77,11 +90,113 @@ body {
     --border: #A4161A;
     --input: #A4161A;
     --ring: #E5383B;
+
+    /* Scrollbar tokens — same flame palette works on dark too */
+    --scrollbar-track: #0A0405;
+    --scrollbar-thumb-start: #EA580C;
+    --scrollbar-thumb-end: #9A3412;
+    --scrollbar-thumb-hover-start: #FB923C;
+    --scrollbar-thumb-hover-end: #C2410C;
   }
 }
 
+/* =========================================================
+   BASE BODY
+========================================================= */
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-outfit), sans-serif;
+}
+
+/* =========================================================
+   SCROLLBAR — Flame Orange (Cross-browser)
+   Y-scroll: hidden but functional
+   X-scroll: visible flame bar
+========================================================= */
+
+/* ----- Webkit (Chrome, Edge, Safari, Brave) ----- */
+::-webkit-scrollbar {
+  width: 0px;          /* hide Y scrollbar visually */
+  height: 10px;        /* X scrollbar visible */
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    90deg,
+    var(--scrollbar-thumb-start) 0%,
+    var(--scrollbar-thumb-end) 100%
+  );
+  border-radius: 10px;
+  border: 2px solid var(--scrollbar-track);
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    90deg,
+    var(--scrollbar-thumb-hover-start) 0%,
+    var(--scrollbar-thumb-hover-end) 100%
+  );
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+/* ----- Firefox ----- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb-start) var(--scrollbar-track);
+}
+
+/* ----- Force vertical scroll hide (fallback) ----- */
+html {
+  scrollbar-width: thin;                /* Firefox — Y & X thin */
+}
+html::-webkit-scrollbar {
+  width: 0px;                           /* Chrome — hide Y */
+  height: 10px;                         /* Chrome — show X */
+}
+
+/* =========================================================
+   LENIS SMOOTH SCROLL
+   Recommended base styles from Lenis docs
+========================================================= */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+/* =========================================================
+   GLOBAL POLISH
+========================================================= */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  overflow-x: hidden;
 }

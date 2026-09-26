@@ -126,7 +126,7 @@ export default function AuthModal({
               <button
                 onClick={onClose}
                 style={{ color: THEME.mutedText }}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-[#F2D6CF]/50 transition-colors focus:outline-none"
+                className="absolute cursor-pointer top-4 right-4 p-2 rounded-full hover:bg-[#F2D6CF]/50 transition-colors focus:outline-none"
                 aria-label="Close Modal"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

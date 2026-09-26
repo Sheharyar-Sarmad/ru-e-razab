@@ -298,7 +298,7 @@ export default function ExploreKalam() {
       ref={sectionRef}
       aria-label="Explore Kalam Categories"
       style={{ backgroundColor: THEME.strawberryWhite }}
-      className="relative w-full min-h-[85vh] flex flex-col justify-center overflow-hidden px-4 py-20 sm:px-6 sm:py-24 md:px-10 lg:px-16 xl:px-24"
+      className="relative flex min-h-[85vh] w-full flex-col justify-center overflow-hidden px-4 py-20 sm:px-6 sm:py-24 md:px-10 lg:px-16 xl:px-24"
     >
       <ThreeBackground />
 
@@ -357,16 +357,16 @@ export default function ExploreKalam() {
 
         {/* CATEGORY CARDS GRID */}
         <div
-          className="explore-grid mx-auto mt-12 grid w-full max-w-5xl grid-cols-1 gap-6 sm:mt-14 sm:grid-cols-2 lg:mt-16 lg:gap-8"
+          className="explore-grid mx-auto mt-12 grid w-full max-w-5xl grid-cols-1 gap-6 auto-rows-fr sm:mt-14 sm:grid-cols-2 lg:mt-16 lg:gap-8"
           dir="rtl"
         >
           {categories.map((category, index) => (
-            <div key={category.key} className="explore-card">
-              <Link href={category.href} className="group block">
+            <div key={category.key} className="explore-card h-full">
+              <Link href={category.href} className="group block h-full">
                 <motion.div
                   whileHover={{ y: -6, scale: 1.01 }}
                   transition={{ duration: 0.35, ease: "easeOut" }}
-                  className="relative overflow-hidden rounded-2xl border p-6 shadow-sm backdrop-blur-md transition-all duration-500 hover:shadow-xl sm:p-8"
+                  className="relative flex h-full flex-col overflow-hidden rounded-2xl border p-6 shadow-sm backdrop-blur-md transition-all duration-500 hover:shadow-xl sm:p-8"
                   style={{
                     backgroundColor: THEME.cardBg,
                     borderColor: THEME.border,
@@ -383,16 +383,16 @@ export default function ExploreKalam() {
 
                   {/* Serial Number Positioned Top-Right */}
                   <span
-                    className="absolute top-5 right-6 text-xs font-bold tracking-widest"
+                    className="absolute right-6 top-5 text-xs font-bold tracking-widest"
                     style={{ color: THEME.mutedText, opacity: 0.5 }}
                   >
                     0{index + 1}
                   </span>
 
                   {/* CENTERED & ENLARGED HAROOF-E-TAHAJI DIV */}
-                  <div className="relative z-10 flex justify-center pt-2">
+                  <div className="relative z-10 flex shrink-0 justify-center pt-2">
                     <span
-                      className="font-urdu flex h-20 w-20 sm:h-24 sm:w-24 items-center justify-center rounded-full border-2 text-4xl sm:text-5xl font-bold shadow-md transition-all duration-500 group-hover:rotate-6 group-hover:scale-110 leading-none pt-1"
+                      className="font-urdu flex h-20 w-20 items-center justify-center rounded-full border-2 pt-1 text-4xl font-bold leading-none shadow-md transition-all duration-500 group-hover:rotate-6 group-hover:scale-110 sm:h-24 sm:w-24 sm:text-5xl"
                       style={{
                         borderColor: `${category.accent}50`,
                         backgroundColor: THEME.strawberryWhite,
@@ -404,26 +404,26 @@ export default function ExploreKalam() {
                     </span>
                   </div>
 
-                  {/* Urdu Title & Description */}
-                  <div className="relative z-10 mt-6 min-h-[100px] flex flex-col items-center text-center">
+                  {/* Urdu Title & Description - Centered Vertically & Horizontally */}
+                  <div className="relative z-10 mt-6 flex w-full flex-grow flex-col items-center justify-center pb-4 text-center">
                     <h3
-                      className="font-urdu m-0 text-3xl sm:text-4xl font-semibold leading-relaxed transition-transform duration-500 group-hover:scale-105"
+                      className="font-urdu m-0 w-full text-3xl font-semibold leading-[1.8] transition-transform duration-500 group-hover:scale-105 sm:text-4xl"
                       style={{ color: THEME.darkText }}
                     >
                       {category.urdu}
                     </h3>
 
                     <p
-                      className="font-urdu m-0 mt-1 text-sm leading-loose sm:text-base max-w-xs"
+                      className="font-urdu m-0 mt-2 max-w-[95%] text-sm leading-[2.2] sm:text-base"
                       style={{ color: THEME.mutedText }}
                     >
                       {category.description}
                     </p>
                   </div>
 
-                  {/* Card Footer */}
+                  {/* Card Footer - Pushed to bottom with mt-auto */}
                   <div
-                    className="relative z-10 mt-6 flex items-center justify-between border-t pt-4"
+                    className="relative z-10 mt-auto flex w-full items-center justify-between border-t pt-4"
                     style={{ borderColor: THEME.border }}
                   >
                     <span

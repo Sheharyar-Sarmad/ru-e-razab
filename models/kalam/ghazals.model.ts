@@ -294,13 +294,7 @@ const GhazalSchema = new Schema<Ghazal>(
       required: true,
       trim: true,
     },
-
-    coverImageMetadata: {
-      type: CoverImageMetadataSchema,
-      required: false,
-      default: {},
-    },
-
+    
     media: {
       type: [MediaSchema],
       required: false,

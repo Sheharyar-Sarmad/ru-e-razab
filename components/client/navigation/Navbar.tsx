@@ -18,6 +18,21 @@ interface User {
   phonenumber?: string;
 }
 
+interface SearchHit {
+  _id: string;
+  type: "ghazal" | "nazm" | "qata" | "shair";
+  typeDisplayUrdu: string;
+  title: string;
+  slug: string;
+  href: string;
+  firstLine: string;
+  category: string[];
+  coverImage: string;
+  likesCount: number;
+  views: number;
+  createdAt: string;
+}
+
 const THEME = {
   strawberryWhite: "#FFF7F4",
   darkOrange: "#C2410C",
@@ -46,10 +61,20 @@ const SOCIAL_LINKS = {
 };
 
 /* =========================================================
-   THREE.JS AMBIENT BACKGROUND FOR NAVBAR
+   THREE.JS AMBIENT BACKGROUND
 ========================================================= */
 
-function ThreeBackground() {
+function ThreeBackground({
+  className = "",
+  opacity = 0.85,
+  particleCount = 120,
+  zCamera = 7,
+}: {
+  className?: string;
+  opacity?: number;
+  particleCount?: number;
+  zCamera?: number;
+}) {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -60,12 +85,12 @@ function ThreeBackground() {
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    let width = mount.clientWidth;
-    let height = mount.clientHeight;
+    let width = mount.clientWidth || mount.offsetWidth || 600;
+    let height = mount.clientHeight || mount.offsetHeight || 400;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
-    camera.position.z = 8;
+    camera.position.z = zCamera;
 
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -73,15 +98,14 @@ function ThreeBackground() {
       powerPreference: "low-power",
     });
 
-    renderer.setSize(width, height);
+    renderer.setSize(width, height, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     mount.appendChild(renderer.domElement);
 
-    const particleCount = 140;
     const positions = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 22;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 8;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
     }
 
@@ -90,14 +114,27 @@ function ThreeBackground() {
 
     const material = new THREE.PointsMaterial({
       color: new THREE.Color(THEME.darkOrange),
-      size: 0.09,
+      size: 0.12,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.75,
       sizeAttenuation: true,
+      depthWrite: false,
     });
 
     const points = new THREE.Points(geometry, material);
     scene.add(points);
+
+    const ringGeo = new THREE.TorusGeometry(2.4, 0.006, 16, 100);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(THEME.darkOrange),
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 3;
+    ring.position.set(3, -1, -2);
+    scene.add(ring);
 
     let animationId: number;
     let isVisible = true;
@@ -110,6 +147,7 @@ function ThreeBackground() {
       }
       points.rotation.y += 0.0006;
       points.rotation.x += 0.0002;
+      ring.rotation.z += 0.0012;
       renderer.render(scene, camera);
     };
 
@@ -117,57 +155,302 @@ function ThreeBackground() {
 
     const handleResize = () => {
       if (!mount) return;
-      width = mount.clientWidth;
-      height = mount.clientHeight;
+      width = mount.clientWidth || width;
+      height = mount.clientHeight || height;
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
+      renderer.setSize(width, height, false);
     };
 
     const handleVisibility = () => {
       isVisible = document.visibilityState === "visible";
     };
 
+    const remeasureTimer = setTimeout(handleResize, 350);
+
     window.addEventListener("resize", handleResize);
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
+      clearTimeout(remeasureTimer);
       cancelAnimationFrame(animationId);
       window.removeEventListener("resize", handleResize);
       document.removeEventListener("visibilitychange", handleVisibility);
       geometry.dispose();
       material.dispose();
+      ringGeo.dispose();
+      ringMat.dispose();
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, []);
+  }, [particleCount, zCamera]);
 
   return (
     <div
       ref={mountRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 z-0 overflow-hidden opacity-70"
+      className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${className}`}
+      style={{ opacity }}
     />
   );
 }
 
 /* =========================================================
-   MAIN NAVBAR COMPONENT
+   LOGOUT CONFIRM MODAL
+========================================================= */
+
+function LogoutConfirmModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  loading,
+  userName,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  loading: boolean;
+  userName?: string;
+}) {
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, loading, onClose]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            key="logout-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => !loading && onClose()}
+            className="fixed inset-0 z-[80] bg-[#3A211B]/70 backdrop-blur-md"
+            aria-hidden="true"
+          />
+
+          {/* Panel */}
+          <motion.div
+            key="logout-panel"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.96 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-title"
+            className="fixed left-1/2 top-1/2 z-[81] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border shadow-2xl"
+            style={{
+              backgroundColor: THEME.strawberryWhite,
+              borderColor: THEME.border,
+            }}
+            dir="rtl"
+          >
+            {/* Ambient background inside the modal */}
+            <div className="absolute inset-0 z-0 pointer-events-none">
+              <ThreeBackground opacity={0.55} particleCount={70} zCamera={6} />
+            </div>
+
+            {/* Soft veil for readability */}
+            <div
+              className="absolute inset-0 z-[1] pointer-events-none"
+              style={{
+                background: `radial-gradient(circle at 50% 0%, ${THEME.darkOrange}10, transparent 60%)`,
+              }}
+              aria-hidden="true"
+            />
+
+            <div className="relative z-10 p-7 sm:p-8 text-center">
+              {/* Icon circle */}
+              <motion.div
+                initial={{ scale: 0.7, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.4, ease: "easeOut" }}
+                className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2"
+                style={{
+                  borderColor: `${THEME.darkOrange}40`,
+                  backgroundColor: `${THEME.darkOrange}12`,
+                  boxShadow: `0 8px 24px -8px ${THEME.darkOrange}50`,
+                }}
+              >
+                <svg
+                  className="h-7 w-7"
+                  style={{ color: THEME.darkOrange }}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </motion.div>
+
+              {/* Urdu Heading */}
+              <h3
+                id="logout-title"
+                className="font-urdu text-2xl font-bold leading-[1.9] sm:text-3xl"
+                style={{ color: THEME.darkText }}
+              >
+                لاگ آؤٹ کی تصدیق
+              </h3>
+
+              {/* Urdu Body */}
+              <p
+                className="font-urdu mt-3 text-base leading-[2.2]"
+                style={{ color: THEME.mutedText }}
+              >
+                {userName ? (
+                  <>
+                    <span className="font-outfit" style={{ color: THEME.darkText, fontWeight: 600 }}>
+                      {userName}
+                    </span>
+                    ، کیا آپ واقعی لاگ آؤٹ کرنا چاہتے ہیں؟
+                  </>
+                ) : (
+                  "کیا آپ واقعی لاگ آؤٹ کرنا چاہتے ہیں؟"
+                )}
+              </p>
+
+              {/* English subline */}
+              <p
+                className="mt-2 text-xs font-outfit opacity-70"
+                style={{ color: THEME.mutedText }}
+                dir="ltr"
+              >
+                You&apos;ll need to sign in again to access your account.
+              </p>
+
+              {/* Actions */}
+              <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-center">
+                {/* Cancel (Secondary) */}
+                <motion.button
+                  whileHover={{ scale: loading ? 1 : 1.03 }}
+                  whileTap={{ scale: loading ? 1 : 0.97 }}
+                  onClick={onClose}
+                  disabled={loading}
+                  className="font-urdu w-full rounded-xl border px-6 py-3 text-base font-bold leading-[1.8] transition-all disabled:opacity-50 sm:w-auto sm:min-w-[120px]"
+                  style={{
+                    borderColor: THEME.border,
+                    color: THEME.darkText,
+                    backgroundColor: "rgba(255, 255, 255, 0.6)",
+                  }}
+                >
+                  رہنے دیں
+                </motion.button>
+
+                {/* Confirm (Primary — Rust) */}
+                <motion.button
+                  whileHover={{
+                    scale: loading ? 1 : 1.03,
+                    y: loading ? 0 : -2,
+                    boxShadow: loading
+                      ? "0 4px 12px -4px rgba(154, 52, 18, 0.4)"
+                      : "0 12px 32px -8px rgba(234, 88, 12, 0.55)",
+                  }}
+                  whileTap={{ scale: loading ? 1 : 0.97 }}
+                  onClick={onConfirm}
+                  disabled={loading}
+                  className="font-urdu relative w-full overflow-hidden rounded-xl px-6 py-3 text-base font-bold leading-[1.8] text-white shadow-md transition-all disabled:opacity-60 sm:w-auto sm:min-w-[140px]"
+                  style={{
+                    background: `linear-gradient(135deg, ${THEME.darkOrange}, #7C2D12)`,
+                  }}
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      <span>لاگ آؤٹ ہو رہا ہے…</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      ہاں، لاگ آؤٹ کریں
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                      </svg>
+                    </span>
+                  )}
+                </motion.button>
+              </div>
+
+              {/* Security note */}
+              <p
+                className="mt-5 flex items-center justify-center gap-1.5 text-[11px] font-outfit"
+                style={{ color: THEME.mutedText }}
+                dir="ltr"
+              >
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                  style={{ color: THEME.emeraldGreen }}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+                Your session will be securely ended
+              </p>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/* =========================================================
+   NAVBAR
 ========================================================= */
 
 export default function Navbar() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [isKalamDropdownOpen, setIsKalamDropdownOpen] =
-    useState<boolean>(false);
+  const [isKalamDropdownOpen, setIsKalamDropdownOpen] = useState<boolean>(false);
   const [isMobileKalamOpen, setIsMobileKalamOpen] = useState<boolean>(false);
   const [isNavVisible, setIsNavVisible] = useState<boolean>(true);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+
+  // Logout confirmation
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState<boolean>(false);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
+
+  // Search
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -246,21 +529,93 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = isMobileMenuOpen ? "hidden" : "";
+    document.body.style.overflow =
+      isMobileMenuOpen || isSearchOpen || isLogoutConfirmOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [isMobileMenuOpen]);
+  }, [isMobileMenuOpen, isSearchOpen, isLogoutConfirmOpen]);
 
-  const handleLogout = async () => {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+      if (e.key === "Escape") {
+        setIsSearchOpen(false);
+        setIsKalamDropdownOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Debounced search
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+
+    if (trimmed.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.get(
+          `/api/client/deewan/search-kulliyat?q=${encodeURIComponent(
+            trimmed
+          )}&limit=8`
+        );
+        if (res.data?.success) {
+          setSearchResults(res.data.data.results || []);
+        } else {
+          setSearchResults([]);
+        }
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      const t = setTimeout(() => searchInputRef.current?.focus(), 80);
+      return () => clearTimeout(t);
+    } else {
+      setSearchQuery("");
+      setSearchResults([]);
+    }
+  }, [isSearchOpen]);
+
+  // ---- Logout flow ----
+  const requestLogout = () => {
+    setIsLogoutConfirmOpen(true);
+    setIsMobileMenuOpen(false);
+  };
+
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
     try {
       const res = await apiClient.post("/api/client/auth/logout");
       if (res.status === 200) {
         setUser(null);
+        setIsLogoutConfirmOpen(false);
+        // Smooth handoff — reload so all server state resets
         window.location.reload();
+      } else {
+        setIsLoggingOut(false);
       }
     } catch (error) {
       console.error("Logout failed:", error);
+      setIsLoggingOut(false);
     }
   };
 
@@ -270,12 +625,17 @@ export default function Navbar() {
     setIsMobileMenuOpen(false);
   };
 
+  const openSearch = () => {
+    setIsMobileMenuOpen(false);
+    setIsSearchOpen(true);
+  };
+
   const kalamLinks = [
+    { title: "کلیات", href: "/kulliyat" },
     { title: "غزلیں", href: "/ghazals" },
     { title: "نظمیں", href: "/nazms" },
-    { title: "کلیات", href: "/kulliyat" },
-    { title: "قطعات", href: "/qata" },
-    { title: "اشعار", href: "/shair" },
+    { title: "قطعات", href: "/qatas" },
+    { title: "اشعار", href: "/shairs" },
   ];
 
   const socialItems = [
@@ -320,7 +680,7 @@ export default function Navbar() {
         }}
         className="fixed top-0 left-0 right-0 z-40 border-b backdrop-blur-md bg-opacity-95 text-[#3A211B]"
       >
-        <ThreeBackground />
+        <ThreeBackground opacity={0.7} particleCount={140} zCamera={8} />
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-6">
@@ -347,22 +707,24 @@ export default function Navbar() {
               </span>
             </Link>
 
-            {/* Desktop Navigation with Proper Flex Gap */}
-            <nav className="hidden md:flex items-center gap-8 lg:gap-10 font-urdu" dir="rtl">
+            {/* Desktop Navigation */}
+            <nav
+              className="hidden md:flex items-center gap-8 lg:gap-10 font-urdu"
+              dir="rtl"
+            >
               <Link
                 href="/"
                 style={{ color: THEME.darkText }}
-                className="text-lg font-semibold hover:text-[#C2410C] transition-colors whitespace-nowrap"
+                className="text-lg font-semibold hover:text-[#C2410C] transition-colors whitespace-nowrap leading-[1.8]"
               >
                 دہلیز
               </Link>
 
-              {/* Kalam Dropdown */}
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setIsKalamDropdownOpen((prev) => !prev)}
                   style={{ color: THEME.darkText }}
-                  className="flex items-center gap-2 text-lg font-semibold hover:text-[#C2410C] focus:outline-none transition-colors py-2 whitespace-nowrap"
+                  className="flex items-center gap-2 text-lg font-semibold hover:text-[#C2410C] focus:outline-none transition-colors py-2 whitespace-nowrap leading-[1.8]"
                   aria-expanded={isKalamDropdownOpen}
                 >
                   <span>کلام</span>
@@ -402,7 +764,7 @@ export default function Navbar() {
                           href={link.href}
                           onClick={() => setIsKalamDropdownOpen(false)}
                           style={{ color: THEME.darkText }}
-                          className="block px-4 py-2 text-base font-semibold hover:bg-[#F2D6CF]/40 transition-colors"
+                          className="block px-4 py-2 text-base font-semibold hover:bg-[#F2D6CF]/40 transition-colors leading-[1.8]"
                         >
                           {link.title}
                         </Link>
@@ -412,17 +774,54 @@ export default function Navbar() {
                 </AnimatePresence>
               </div>
 
-              {/* ADBI DOST (AI Chat) Link */}
               <Link
                 href="/ai/chat"
                 style={{ color: THEME.darkText }}
-                className="text-lg font-semibold hover:text-[#C2410C] transition-colors whitespace-nowrap"
+                className="text-lg font-semibold hover:text-[#C2410C] transition-colors whitespace-nowrap leading-[1.8]"
               >
                 ادبی دوست
               </Link>
             </nav>
 
-            {/* Desktop Auth Controls */}
+            {/* Desktop Search Button */}
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              aria-label="Search kulliyat"
+              className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all hover:bg-[#F2D6CF]/40 shrink-0"
+              style={{
+                borderColor: THEME.border,
+                color: THEME.mutedText,
+                backgroundColor: THEME.strawberryWhite,
+              }}
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.5"
+                  d="M21 21l-4.35-4.35M17 10.5A6.5 6.5 0 1 1 4 10.5a6.5 6.5 0 0 1 13 0z"
+                />
+              </svg>
+              <span className="hidden lg:inline font-urdu text-base leading-[1.8]">
+                تلاش
+              </span>
+              <kbd
+                className="hidden lg:inline text-[10px] px-1.5 py-0.5 rounded border font-outfit"
+                style={{
+                  borderColor: THEME.border,
+                  color: THEME.mutedText,
+                }}
+              >
+                ⌘K
+              </kbd>
+            </button>
+
+            {/* Desktop Auth */}
             <div className="hidden md:flex items-center gap-4 shrink-0">
               {loading ? (
                 <div
@@ -438,23 +837,23 @@ export default function Navbar() {
                       borderColor: THEME.border,
                       color: THEME.darkText,
                     }}
-                    className="flex items-center gap-2.5 text-sm font-semibold px-3.5 py-1.5 rounded-full border transition-all hover:bg-[#F2D6CF]/30 font-urdu"
+                    className="flex items-center gap-2.5 text-sm font-semibold px-3.5 py-1.5 rounded-full border transition-all hover:bg-[#F2D6CF]/30"
                   >
                     <span
                       style={{
                         backgroundColor: THEME.darkOrange,
                         color: "#FFFFFF",
                       }}
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs uppercase font-bold"
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs uppercase font-bold font-outfit"
                     >
                       {user.firstname?.[0] || "U"}
                     </span>
                     <span>{user.firstname}</span>
                   </Link>
                   <button
-                    onClick={handleLogout}
+                    onClick={requestLogout}
                     style={{ color: THEME.deepRed }}
-                    className="text-sm font-urdu font-semibold hover:underline px-2 py-1"
+                    className="text-sm font-urdu font-semibold hover:underline px-2 py-1 leading-[1.8] transition-opacity hover:opacity-80"
                   >
                     لاگ آؤٹ
                   </button>
@@ -464,7 +863,7 @@ export default function Navbar() {
                   <button
                     onClick={() => openAuthModal("login")}
                     style={{ color: THEME.darkText }}
-                    className="text-base font-urdu font-semibold hover:text-[#C2410C] transition-colors px-3 py-2"
+                    className="text-base font-urdu font-semibold hover:text-[#C2410C] transition-colors px-3 py-2 leading-[1.8]"
                   >
                     داخل ہوں
                   </button>
@@ -476,7 +875,7 @@ export default function Navbar() {
                       backgroundColor: THEME.darkOrange,
                       color: "#FFFFFF",
                     }}
-                    className="text-base font-urdu font-bold px-4 py-2 rounded-xl shadow-md transition-all hover:bg-[#EA580C]"
+                    className="text-base font-urdu font-bold px-4 py-2 rounded-xl shadow-md transition-all hover:bg-[#EA580C] leading-[1.8]"
                   >
                     اکاؤنٹ بنائیں
                   </motion.button>
@@ -484,8 +883,28 @@ export default function Navbar() {
               )}
             </div>
 
-            {/* Mobile Hamburger Button */}
-            <div className="flex md:hidden items-center">
+            {/* Mobile controls */}
+            <div className="flex md:hidden items-center gap-2">
+              <button
+                onClick={openSearch}
+                style={{ color: THEME.darkText }}
+                className="p-2 rounded-lg hover:bg-[#F2D6CF]/40 focus:outline-none"
+                aria-label="Open search"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.5"
+                    d="M21 21l-4.35-4.35M17 10.5A6.5 6.5 0 1 1 4 10.5a6.5 6.5 0 0 1 13 0z"
+                  />
+                </svg>
+              </button>
               <button
                 onClick={() => setIsMobileMenuOpen(true)}
                 style={{ color: THEME.darkText }}
@@ -524,7 +943,6 @@ export default function Navbar() {
               className="fixed inset-0 z-50 bg-black/40 md:hidden"
               aria-hidden="true"
             />
-
             <motion.div
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
@@ -534,7 +952,6 @@ export default function Navbar() {
               className="fixed top-0 left-0 z-50 h-full w-[82%] max-w-sm overflow-y-auto shadow-2xl md:hidden"
               role="dialog"
               aria-modal="true"
-              aria-label="Navigation menu"
             >
               <div
                 className="flex items-center justify-between px-5 h-16 border-b"
@@ -586,16 +1003,37 @@ export default function Navbar() {
                   href="/"
                   onClick={() => setIsMobileMenuOpen(false)}
                   style={{ color: THEME.darkText }}
-                  className="block text-lg font-semibold py-2.5"
+                  className="block text-lg font-semibold py-2.5 leading-[1.8]"
                 >
                   دہلیز
                 </Link>
+
+                <button
+                  onClick={openSearch}
+                  style={{ color: THEME.darkText }}
+                  className="w-full flex items-center justify-between text-lg font-semibold py-2.5 leading-[1.8]"
+                >
+                  <span>تلاش</span>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M21 21l-4.35-4.35M17 10.5A6.5 6.5 0 1 1 4 10.5a6.5 6.5 0 0 1 13 0z"
+                    />
+                  </svg>
+                </button>
 
                 <Link
                   href="/ai/chat"
                   onClick={() => setIsMobileMenuOpen(false)}
                   style={{ color: THEME.darkText }}
-                  className="block text-lg font-semibold py-2.5"
+                  className="block text-lg font-semibold py-2.5 leading-[1.8]"
                 >
                   ادبی دوست
                 </Link>
@@ -604,7 +1042,7 @@ export default function Navbar() {
                   <button
                     onClick={() => setIsMobileKalamOpen((prev) => !prev)}
                     style={{ color: THEME.darkText }}
-                    className="w-full flex items-center justify-between text-lg font-semibold py-2.5"
+                    className="w-full flex items-center justify-between text-lg font-semibold py-2.5 leading-[1.8]"
                   >
                     <span>کلام</span>
                     <svg
@@ -639,7 +1077,7 @@ export default function Navbar() {
                             key={link.href}
                             href={link.href}
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className="block text-base font-semibold py-1.5"
+                            className="block text-base font-semibold py-1.5 leading-[1.8]"
                             style={{ color: THEME.mutedText }}
                           >
                             {link.title}
@@ -661,17 +1099,14 @@ export default function Navbar() {
                       href="/account/settings"
                       onClick={() => setIsMobileMenuOpen(false)}
                       style={{ color: THEME.darkOrange }}
-                      className="flex items-center gap-2 text-base font-bold py-1"
+                      className="flex items-center gap-2 text-base font-bold py-1 leading-[1.8]"
                     >
                       <span>اکاؤنٹ کی ترتیبات ({user.firstname})</span>
                     </Link>
                     <button
-                      onClick={() => {
-                        setIsMobileMenuOpen(false);
-                        handleLogout();
-                      }}
+                      onClick={requestLogout}
                       style={{ color: THEME.deepRed }}
-                      className="w-full text-right text-base font-semibold py-1"
+                      className="w-full text-right text-base font-semibold py-1 leading-[1.8]"
                     >
                       لاگ آؤٹ
                     </button>
@@ -684,7 +1119,7 @@ export default function Navbar() {
                         borderColor: THEME.border,
                         color: THEME.darkText,
                       }}
-                      className="w-full text-center py-2.5 text-base font-bold border rounded-xl"
+                      className="w-full text-center py-2.5 text-base font-bold border rounded-xl leading-[1.8]"
                     >
                       داخل ہوں
                     </button>
@@ -694,7 +1129,7 @@ export default function Navbar() {
                         backgroundColor: THEME.darkOrange,
                         color: "#FFFFFF",
                       }}
-                      className="w-full text-center py-2.5 text-base font-bold rounded-xl shadow-md"
+                      className="w-full text-center py-2.5 text-base font-bold rounded-xl shadow-md leading-[1.8]"
                     >
                       اکاؤنٹ بنائیں
                     </button>
@@ -708,7 +1143,7 @@ export default function Navbar() {
               >
                 <p
                   style={{ color: THEME.mutedText }}
-                  className="text-xs font-semibold uppercase tracking-wider mb-3"
+                  className="text-xs font-semibold uppercase tracking-wider mb-3 font-outfit"
                 >
                   Follow Us
                 </p>
@@ -741,6 +1176,291 @@ export default function Navbar() {
           </>
         )}
       </AnimatePresence>
+
+      {/* ============================
+          SEARCH MODAL
+      ============================= */}
+      <AnimatePresence>
+        {isSearchOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setIsSearchOpen(false)}
+              className="fixed inset-0 z-[60] bg-[#3A211B]/65 backdrop-blur-md"
+              aria-hidden="true"
+            />
+
+            <motion.div
+              key="search-panel"
+              initial={{ opacity: 0, y: -20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Search kulliyat"
+              className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[61] w-[92%] max-w-2xl rounded-2xl shadow-2xl overflow-hidden border"
+              style={{
+                backgroundColor: THEME.strawberryWhite,
+                borderColor: THEME.border,
+              }}
+            >
+              <div className="absolute inset-0 z-0 pointer-events-none">
+                <ThreeBackground
+                  opacity={0.9}
+                  particleCount={120}
+                  zCamera={7}
+                />
+              </div>
+
+              <div
+                className="absolute inset-0 z-[1] pointer-events-none"
+                style={{
+                  background: `linear-gradient(
+                    180deg,
+                    rgba(255, 247, 244, 0.30) 0%,
+                    rgba(255, 247, 244, 0.10) 40%,
+                    rgba(255, 247, 244, 0.30) 100%
+                  )`,
+                }}
+                aria-hidden="true"
+              />
+
+              <div
+                className="relative z-10 flex items-center gap-3 px-4 py-3 border-b"
+                style={{ borderColor: THEME.border }}
+              >
+                <button
+                  onClick={() => setIsSearchOpen(false)}
+                  aria-label="Close search"
+                  className="shrink-0 flex items-center justify-center h-9 w-9 rounded-full border transition-all hover:bg-[#F2D6CF]/60 focus:outline-none"
+                  style={{
+                    borderColor: THEME.border,
+                    color: THEME.mutedText,
+                    backgroundColor: "rgba(255, 255, 255, 0.7)",
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="یہاں تلاش کریں"
+                  dir="rtl"
+                  className="
+                    flex-1
+                    bg-transparent
+                    outline-none
+                    font-urdu
+                    text-lg
+                    leading-[2.4]
+                    py-2
+                    text-right
+                    placeholder:leading-[2.4]
+                    placeholder:text-base
+                    placeholder:opacity-60
+                  "
+                  style={{ color: THEME.darkText }}
+                  aria-label="Search query"
+                />
+
+                {isSearching ? (
+                  <div
+                    className="w-5 h-5 rounded-full border-2 animate-spin shrink-0"
+                    style={{
+                      borderColor: THEME.darkOrange,
+                      borderTopColor: "transparent",
+                    }}
+                    aria-label="Searching"
+                  />
+                ) : (
+                  <svg
+                    className="w-5 h-5 shrink-0"
+                    style={{ color: THEME.darkOrange }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M21 21l-4.35-4.35M17 10.5A6.5 6.5 0 1 1 4 10.5a6.5 6.5 0 0 1 13 0z"
+                    />
+                  </svg>
+                )}
+              </div>
+
+              <div className="relative z-10 max-h-[60vh] overflow-y-auto">
+                {searchQuery.trim().length < 2 ? (
+                  <div
+                    className="p-10 text-center font-urdu"
+                    style={{ color: THEME.mutedText }}
+                  >
+                    <p className="mb-2 text-lg leading-[2.2]">
+                      کم از کم دو حروف لکھیں
+                    </p>
+                    <p
+                      className="text-xs opacity-70 font-outfit leading-normal"
+                      dir="ltr"
+                    >
+                      Type at least 2 characters to search
+                    </p>
+                  </div>
+                ) : searchResults.length === 0 && !isSearching ? (
+                  <div
+                    className="p-10 text-center font-urdu"
+                    style={{ color: THEME.mutedText }}
+                  >
+                    <p className="mb-2 text-lg leading-[2.2]">
+                      کوئی نتیجہ نہیں ملا
+                    </p>
+                    <p
+                      className="text-xs opacity-70 font-outfit leading-normal"
+                      dir="ltr"
+                    >
+                      No results found for &ldquo;{searchQuery}&rdquo;
+                    </p>
+                  </div>
+                ) : (
+                  <div dir="rtl">
+                    {searchResults.map((hit) => (
+                      <Link
+                        key={`${hit.type}-${hit._id}`}
+                        href={hit.href}
+                        onClick={() => {
+                          setIsSearchOpen(false);
+                          setSearchQuery("");
+                        }}
+                        className="group flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-[#F2D6CF]/30 transition-colors"
+                        style={{ borderColor: THEME.border }}
+                      >
+                        <div
+                          className="relative shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border"
+                          style={{ borderColor: THEME.border }}
+                        >
+                          {hit.coverImage ? (
+                            <Image
+                              src={hit.coverImage}
+                              alt={hit.title}
+                              fill
+                              sizes="80px"
+                              className="object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                          ) : (
+                            <div
+                              className="w-full h-full flex items-center justify-center font-urdu text-2xl leading-[1.8]"
+                              style={{
+                                background: `linear-gradient(135deg, ${THEME.darkOrange}15, ${THEME.orangeGlow}15)`,
+                                color: THEME.darkOrange,
+                              }}
+                            >
+                              {hit.typeDisplayUrdu.charAt(0)}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span
+                              className="text-xs font-bold px-2 py-0.5 rounded-full font-urdu leading-[1.8]"
+                              style={{
+                                backgroundColor: `${THEME.darkOrange}15`,
+                                color: THEME.darkOrange,
+                              }}
+                            >
+                              {hit.typeDisplayUrdu}
+                            </span>
+                            {hit.category?.[0] && (
+                              <span
+                                className="text-xs font-urdu truncate leading-[1.8]"
+                                style={{ color: THEME.mutedText }}
+                              >
+                                {hit.category[0]}
+                              </span>
+                            )}
+                          </div>
+                          <p
+                            className="font-urdu text-base leading-[2.2] line-clamp-2"
+                            style={{ color: THEME.darkText }}
+                          >
+                            {hit.firstLine || hit.title}
+                          </p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="relative z-10 px-4 py-2.5 border-t flex items-center justify-between text-[11px] font-outfit"
+                style={{
+                  borderColor: THEME.border,
+                  color: THEME.mutedText,
+                  backgroundColor: "rgba(255, 247, 244, 0.85)",
+                  backdropFilter: "blur(8px)",
+                }}
+                dir="ltr"
+              >
+                <span className="flex items-center gap-1.5">
+                  <kbd
+                    className="px-1.5 py-0.5 rounded border"
+                    style={{ borderColor: THEME.border }}
+                  >
+                    ↵
+                  </kbd>
+                  Open
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <kbd
+                    className="px-1.5 py-0.5 rounded border"
+                    style={{ borderColor: THEME.border }}
+                  >
+                    ESC
+                  </kbd>
+                  Close
+                </span>
+                <span>
+                  Powered by{" "}
+                  <span style={{ color: THEME.darkOrange, fontWeight: 600 }}>
+                    Ru-e-Razab
+                  </span>
+                </span>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ============================
+          LOGOUT CONFIRMATION MODAL
+      ============================= */}
+      <LogoutConfirmModal
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => !isLoggingOut && setIsLogoutConfirmOpen(false)}
+        onConfirm={confirmLogout}
+        loading={isLoggingOut}
+        userName={user?.firstname}
+      />
 
       <div className="h-16" aria-hidden="true" />
 

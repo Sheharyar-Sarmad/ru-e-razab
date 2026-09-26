@@ -433,7 +433,7 @@ export default function KalamOfTheDay() {
             style={{ borderColor: THEME.border, color: THEME.mutedText }}
             className="mx-auto flex max-w-2xl flex-col items-center rounded-2xl border border-dashed px-8 py-16 text-center"
           >
-            <p dir="rtl" className="font-urdu text-xl leading-relaxed sm:text-2xl" style={{ color: THEME.darkText }}>
+            <p dir="rtl" className="font-urdu text-xl leading-relaxed sm:text-2xl" style={{ color: THEME.strawberryWhite }}>
               گزشتہ چوبیس گھنٹوں میں کوئی نیا کلام شائع نہیں ہوا۔
             </p>
             <p className="mt-3 text-sm">Check back soon for today&apos;s Kalam.</p>

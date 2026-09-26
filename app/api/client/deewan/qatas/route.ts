@@ -1,191 +1,289 @@
-// app/api/admin/dashboard/deewan/qata/route.ts
+// app/api/client/deewan/qatas/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import QataModel from "@/models/kalam/qata.model";
 
-// CACHE
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 60 * 1000; // 1 minute
-
-// HELPER: Get cache key
-
-function getCacheKey(
-  page: number,
-  limit: number,
-  search: string,
-  category: string,
-  takhallus: string,
-  sortBy: string,
-  sortOrder: string
-): string {
-  return `qatas:${page}:${limit}:${search}:${category}:${takhallus}:${sortBy}:${sortOrder}`;
+/* =========================================================
+   LRU CACHE
+========================================================= */
+interface Entry {
+  value: any;
+  expiresAt: number;
+  staleAt: number;
+}
+class LRU {
+  private map = new Map<string, Entry>();
+  constructor(private max = 300) {}
+  get(k: string) {
+    const e = this.map.get(k);
+    if (!e) return null;
+    const now = Date.now();
+    if (now > e.expiresAt) {
+      this.map.delete(k);
+      return null;
+    }
+    this.map.delete(k);
+    this.map.set(k, e);
+    return { value: e.value, isStale: now > e.staleAt };
+  }
+  set(k: string, v: any, softMs: number, hardMs: number) {
+    if (this.map.size >= this.max) {
+      const first = this.map.keys().next().value;
+      if (first) this.map.delete(first);
+    }
+    const now = Date.now();
+    this.map.set(k, { value: v, staleAt: now + softMs, expiresAt: now + hardMs });
+  }
+  clear() {
+    this.map.clear();
+  }
 }
 
-// GET - All Qatas with Pagination, Search & Filtering
+const cache = new LRU(300);
+const inflight = new Map<string, Promise<any>>();
+const TTL = { SOFT_MS: 2 * 60 * 1000, HARD_MS: 15 * 60 * 1000 };
 
-export async function GET(request: NextRequest) {
-  const startTime = performance.now();
+/* =========================================================
+   HELPERS
+========================================================= */
+async function ensureDb() {
+  if (mongoose.connection.readyState === 1) return;
+  await ConnectDB(EnvSecrets.mongoUri as string);
+}
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* Full content — safer than nested $slice */
+const PROJECTION = {
+  takhallus: 1,
+  slug: 1,
+  category: 1,
+  coverImage: 1,
+  createdAt: 1,
+  likes: 1,
+  comments: 1,
+  content: 1,
+};
+
+function extractFirstLine(content: any): string {
   try {
-    // Connect to database
-    await ConnectDB(EnvSecrets.mongoUri as string);
+    return content?.[0]?.lines?.[0] ?? "";
+  } catch {
+    return "";
+  }
+}
 
-    const { searchParams } = new URL(request.url);
+/* =========================================================
+   CORE FETCH
+========================================================= */
+async function fetchQatas(page: number, limit: number, search: string) {
+  await ensureDb();
 
-    //  PAGINATION
-      
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "9"); // 9 per page
-    const skip = (page - 1) * limit;
+  const filter: Record<string, any> = {};
+  if (search && search.length >= 2) {
+    const rx = new RegExp(escapeRegex(search), "i");
+    filter.$or = [
+      { "content.lines": rx },
+      { category: rx },
+      { takhallus: rx },
+    ];
+  }
 
-    // SEARCH & FILTERS
+  const skip = (page - 1) * limit;
 
-    const search = searchParams.get("search") || "";
-    const category = searchParams.get("category") || "";
-    const takhallus = searchParams.get("takhallus") || "";
+  const [docs, total] = await Promise.all([
+    QataModel.find(filter)
+      .select(PROJECTION)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .maxTimeMS(6000),
+    QataModel.countDocuments(filter).maxTimeMS(6000),
+  ]);
 
-    // SORTING
+  const poetry = docs.map((doc: any) => ({
+    _id: String(doc._id),
+    type: "qata" as const,
+    typeDisplayUrdu: "قطعہ",
+    title: "قطعہ",
+    slug: doc.slug,
+    firstLine: extractFirstLine(doc.content),
+    category: doc.category || [],
+    coverImage: doc.coverImage || "",
+    likesCount: Array.isArray(doc.likes) ? doc.likes.length : 0,
+    commentsCount: Array.isArray(doc.comments) ? doc.comments.length : 0,
+    createdAt: doc.createdAt,
+  }));
 
-    const sortBy = searchParams.get("sortBy") || "createdAt";
-    const sortOrder = searchParams.get("sortOrder") || "desc";
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
-    // CHECK CACHE
+  return {
+    poetry,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+      showing:
+        total === 0
+          ? "0 of 0"
+          : `${skip + 1}–${Math.min(skip + limit, total)} of ${total}`,
+    },
+    stats: {
+      total,
+      byType: { ghazal: 0, nazm: 0, qata: total, shair: 0 },
+    },
+  };
+}
 
-    const cacheKey = getCacheKey(page, limit, search, category, takhallus, sortBy, sortOrder);
-    const cached = cache.get(cacheKey);
+/* =========================================================
+   GET
+========================================================= */
+export async function GET(req: NextRequest) {
+  const t0 = Date.now();
+  try {
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(
+      30,
+      Math.max(1, parseInt(searchParams.get("limit") || "6", 10))
+    );
+    const search = (searchParams.get("search") || "").trim();
 
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
-      return NextResponse.json(cached.data, {
-        status: HTTP_STATUS.OK,
-        headers: {
-          "X-Response-Time": `${(performance.now() - startTime).toFixed(2)}ms`,
-          "X-Cache": "HIT",
+    const key = `qatas:v2:${page}:${limit}:${search}`;
+
+    // Fresh cache
+    const hit = cache.get(key);
+    if (hit && !hit.isStale) {
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Qatas (cached)",
+          data: hit.value,
+          err: null,
+          status: HTTP_STATUS.OK,
         },
+        {
+          status: HTTP_STATUS.OK,
+          headers: {
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+            "x-cache": "HIT",
+            "x-time": `${Date.now() - t0}ms`,
+          },
+        }
+      );
+    }
+
+    // Stale → serve + refresh
+    if (hit && hit.isStale) {
+      if (!inflight.has(key)) {
+        const p = fetchQatas(page, limit, search)
+          .then((fresh) => cache.set(key, fresh, TTL.SOFT_MS, TTL.HARD_MS))
+          .catch(() => {})
+          .finally(() => inflight.delete(key));
+        inflight.set(key, p);
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Qatas (stale)",
+          data: hit.value,
+          err: null,
+          status: HTTP_STATUS.OK,
+        },
+        {
+          status: HTTP_STATUS.OK,
+          headers: {
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+            "x-cache": "STALE",
+            "x-time": `${Date.now() - t0}ms`,
+          },
+        }
+      );
+    }
+
+    // Dedupe
+    if (inflight.has(key)) {
+      const fresh = await inflight.get(key);
+      return NextResponse.json({
+        success: true,
+        message: "Qatas",
+        data: fresh,
+        err: null,
+        status: HTTP_STATUS.OK,
       });
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // BUILD FILTER
-
-    let filter: any = {};
-
-    // Search filter
-    if (search) {
-      filter.$or = [
-        { takhallus: { $regex: search, $options: "i" } },
-        { "content.lines": { $regex: search, $options: "i" } },
-        { metaTitle: { $regex: search, $options: "i" } },
-        { metaDescription: { $regex: search, $options: "i" } },
-      ];
+    // Cold
+    const p = fetchQatas(page, limit, search);
+    inflight.set(key, p);
+    let data;
+    try {
+      data = await p;
+      cache.set(key, data, TTL.SOFT_MS, TTL.HARD_MS);
+    } finally {
+      inflight.delete(key);
     }
 
-    // Category filter
-    if (category) {
-      filter.category = { $in: [category] };
-    }
-
-    // Takhallus filter
-    if (takhallus) {
-      filter.takhallus = { $regex: takhallus, $options: "i" };
-    }
-
-    // 📊 BUILD SORT
-
-    const sort: any = {};
-    sort[sortBy] = sortOrder === "desc" ? -1 : 1;
-
-    // EXECUTE QUERY
-
-    const [qatas, total] = await Promise.all([
-      QataModel.find(filter)
-        .select("takhallus slug content category coverImage metaTitle metaDescription links likes comments createdAt updatedAt")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean()
-        .exec(),
-      QataModel.countDocuments(filter),
-    ]);
-
-    // GET ALL CATEGORIES & POETS (for filters)
-
-    const [allCategories, allPoets] = await Promise.all([
-      QataModel.distinct("category"),
-      QataModel.distinct("takhallus"),
-    ]);
-
-    const responseTime = performance.now() - startTime;
-    const totalPages = Math.ceil(total / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1;
-
-    // BUILD RESPONSE
-
-    const responseData = {
-      success: true,
-      message: "Qatas fetched successfully",
-      data: {
-        qatas,
-        pagination: {
-          total,
-          page,
-          limit,
-          totalPages,
-          hasNext,
-          hasPrev,
-          nextPage: hasNext ? page + 1 : null,
-          prevPage: hasPrev ? page - 1 : null,
-        },
-        filters: {
-          search: search || null,
-          category: category || null,
-          takhallus: takhallus || null,
-          availableCategories: allCategories,
-          availablePoets: allPoets,
-        },
-        sort: {
-          field: sortBy,
-          order: sortOrder,
-        },
-        meta: {
-          responseTime: `${responseTime.toFixed(2)}ms`,
-        },
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Qatas fetched successfully (قطعات حاصل ہوگئے)",
+        data,
+        err: null,
+        status: HTTP_STATUS.OK,
       },
-      err: null,
-      status: HTTP_STATUS.OK,
-    };
-
-    // STORE IN CACHE
-
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
-
-    return NextResponse.json(responseData, {
-      status: HTTP_STATUS.OK,
-      headers: {
-        "X-Response-Time": `${responseTime.toFixed(2)}ms`,
-        "X-Cache": "MISS",
-        "Cache-Control": "no-cache",
-      },
-    });
-  } catch (error) {
-    console.error("Deewan Qata Error:", error);
+      {
+        status: HTTP_STATUS.OK,
+        headers: {
+          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+          "x-cache": "MISS",
+          "x-time": `${Date.now() - t0}ms`,
+        },
+      }
+    );
+  } catch (error: any) {
+    console.error("Qatas:", error?.message);
+    const isConn =
+      error?.name?.includes("Mongo") ||
+      error?.name === "MongooseServerSelectionError";
     return NextResponse.json(
       {
         success: false,
         message: "Failed to fetch qatas",
         data: null,
-        err: "FETCH_ERROR",
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        err: isConn ? "DB_UNAVAILABLE" : "FETCH_ERROR",
+        status: isConn
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      {
+        status: isConn
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      }
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  if (searchParams.get("action") !== "purge") {
+    return NextResponse.json(
+      { success: false, message: "Unknown action" },
+      { status: 400 }
+    );
+  }
+  cache.clear();
+  inflight.clear();
+  return NextResponse.json({ success: true, message: "Purged" });
 }

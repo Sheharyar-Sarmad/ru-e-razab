@@ -1,125 +1,289 @@
-// app/api/admin/dashboard/deewan-e-ghazal/route.ts
+// app/api/client/deewan/ghazals/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
+import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
-import { HTTP_STATUS } from "@/lib/http.status.codes";
 import GhazalModel from "@/models/kalam/ghazals.model";
-import { NextResponse, NextRequest } from "next/server";
 
-const cache = new Map();
-const CACHE_TTL = 60000;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function GET(request: NextRequest) {
-  const startTime = performance.now();
+/* =========================================================
+   LRU CACHE
+========================================================= */
+interface Entry {
+  value: any;
+  expiresAt: number;
+  staleAt: number;
+}
+class LRU {
+  private map = new Map<string, Entry>();
+  constructor(private max = 300) {}
+  get(k: string) {
+    const e = this.map.get(k);
+    if (!e) return null;
+    const now = Date.now();
+    if (now > e.expiresAt) {
+      this.map.delete(k);
+      return null;
+    }
+    this.map.delete(k);
+    this.map.set(k, e);
+    return { value: e.value, isStale: now > e.staleAt };
+  }
+  set(k: string, v: any, softMs: number, hardMs: number) {
+    if (this.map.size >= this.max) {
+      const first = this.map.keys().next().value;
+      if (first) this.map.delete(first);
+    }
+    const now = Date.now();
+    this.map.set(k, { value: v, staleAt: now + softMs, expiresAt: now + hardMs });
+  }
+  clear() {
+    this.map.clear();
+  }
+}
 
+const cache = new LRU(300);
+const inflight = new Map<string, Promise<any>>();
+const TTL = { SOFT_MS: 2 * 60 * 1000, HARD_MS: 15 * 60 * 1000 };
+
+/* =========================================================
+   HELPERS
+========================================================= */
+async function ensureDb() {
+  if (mongoose.connection.readyState === 1) return;
+  await ConnectDB(EnvSecrets.mongoUri as string);
+}
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const PROJECTION = {
+  slug: 1,
+  takhallus: 1,
+  category: 1,
+  coverImage: 1,
+  createdAt: 1,
+  likes: 1,
+  comments: 1,
+  "content.lines": { $slice: 1 },
+};
+
+function extractFirstLine(content: any): string {
   try {
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "6");
-    const search = searchParams.get("search") || "";
-    const skip = (page - 1) * limit;
+    return content?.[0]?.lines?.[0] ?? "";
+  } catch {
+    return "";
+  }
+}
 
-    // Cache key
-    const cacheKey = `deewan:${page}:${limit}:${search}`;
+/* =========================================================
+   CORE FETCH
+========================================================= */
+async function fetchGhazals(page: number, limit: number, search: string) {
+  await ensureDb();
 
-    // Check cache
-    if (cache.has(cacheKey)) {
-      const cached = cache.get(cacheKey);
-      if (Date.now() - cached.timestamp < CACHE_TTL) {
-        return NextResponse.json(cached.data, {
-          headers: {
-            "X-Response-Time": `${(performance.now() - startTime).toFixed(2)}ms`,
-            "X-Cache": "HIT",
-          },
-        });
-      }
-    }
+  const filter: Record<string, any> = {};
+  if (search && search.length >= 2) {
+    const rx = new RegExp(escapeRegex(search), "i");
+    filter.$or = [
+      { "content.lines": rx },
+      { category: rx },
+      { metaTitle: rx },
+      { metaDescription: rx },
+    ];
+  }
 
-    // Connect to database
-    await ConnectDB(EnvSecrets.mongoUri as string);
+  const skip = (page - 1) * limit;
 
-    // Build filter
-    const filter: any = {};
-    if (search) {
-      filter["content.0.lines.0"] = { $regex: search, $options: "i" };
-    }
-
-    let query = GhazalModel.find(filter)
-      .select("takhallus slug content category coverImage createdAt updatedAt")
+  const [docs, total] = await Promise.all([
+    GhazalModel.find(filter)
+      .select(PROJECTION)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .lean();
+      .lean()
+      .maxTimeMS(6000),
+    GhazalModel.countDocuments(filter).maxTimeMS(6000),
+  ]);
 
-    // Execute queries in parallel with try-catch for each
-    try {
-      const [ghazals, total] = await Promise.all([
-        query.exec(),
-        GhazalModel.countDocuments(filter),
-      ]);
+  const poetry = docs.map((doc: any) => ({
+    _id: String(doc._id),
+    type: "ghazal" as const,
+    typeDisplayUrdu: "غزل",
+    title: "غزل",
+    slug: doc.slug,
+    firstLine: extractFirstLine(doc.content),
+    category: doc.category || [],
+    coverImage: doc.coverImage || "",
+    likesCount: Array.isArray(doc.likes) ? doc.likes.length : 0,
+    commentsCount: Array.isArray(doc.comments) ? doc.comments.length : 0,
+    createdAt: doc.createdAt,
+  }));
 
-      const responseTime = performance.now() - startTime;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
-      const responseData = {
-        success: true,
-        message: search ? "Search results fetched successfully" : "Deewan-e-Ghazal fetched successfully",
-        data: {
-          ghazals,
-          pagination: {
-            total,
-            page,
-            limit,
-            pages: Math.ceil(total / limit),
-            hasNext: page * limit < total,
-            hasPrev: page > 1,
-          },
-          search: search || null,
-          responseTime: `${responseTime.toFixed(2)}ms`,
-        },
-        err: null,
-        status: HTTP_STATUS.OK,
-      };
+  return {
+    poetry,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+      showing:
+        total === 0
+          ? "0 of 0"
+          : `${skip + 1}–${Math.min(skip + limit, total)} of ${total}`,
+    },
+    stats: {
+      total,
+      byType: { ghazal: total, nazm: 0, qata: 0, shair: 0 },
+    },
+  };
+}
 
-      // Store in cache
-      cache.set(cacheKey, {
-        data: responseData,
-        timestamp: Date.now(),
-      });
+/* =========================================================
+   GET
+========================================================= */
+export async function GET(req: NextRequest) {
+  const t0 = Date.now();
+  try {
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(
+      30,
+      Math.max(1, parseInt(searchParams.get("limit") || "6", 10))
+    );
+    const search = (searchParams.get("search") || "").trim();
 
-      return NextResponse.json(responseData, {
-        status: HTTP_STATUS.OK,
-        headers: {
-          "X-Response-Time": `${responseTime.toFixed(2)}ms`,
-          "X-Cache": "MISS",
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-        },
-      });
-    } catch (queryError) {
-      console.error("Query Error:", queryError);
+    const key = `ghazals:${page}:${limit}:${search}`;
+
+    // Fresh cache
+    const hit = cache.get(key);
+    if (hit && !hit.isStale) {
       return NextResponse.json(
         {
-          success: false,
-          message: "Database query failed",
-          data: null,
-          err: "QUERY_ERROR",
-          details: queryError instanceof Error ? queryError.message : String(queryError),
-          status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+          success: true,
+          message: "Ghazals (cached)",
+          data: hit.value,
+          err: null,
+          status: HTTP_STATUS.OK,
         },
-        { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+        {
+          status: HTTP_STATUS.OK,
+          headers: {
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+            "x-cache": "HIT",
+            "x-time": `${Date.now() - t0}ms`,
+          },
+        }
       );
     }
-  } catch (error) {
-    console.error("Deewan-e-Ghazal Error:", error);
+
+    // Stale → serve + refresh in background
+    if (hit && hit.isStale) {
+      if (!inflight.has(key)) {
+        const p = fetchGhazals(page, limit, search)
+          .then((fresh) => cache.set(key, fresh, TTL.SOFT_MS, TTL.HARD_MS))
+          .catch(() => {})
+          .finally(() => inflight.delete(key));
+        inflight.set(key, p);
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Ghazals (stale)",
+          data: hit.value,
+          err: null,
+          status: HTTP_STATUS.OK,
+        },
+        {
+          status: HTTP_STATUS.OK,
+          headers: {
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+            "x-cache": "STALE",
+            "x-time": `${Date.now() - t0}ms`,
+          },
+        }
+      );
+    }
+
+    // Dedupe
+    if (inflight.has(key)) {
+      const fresh = await inflight.get(key);
+      return NextResponse.json({
+        success: true,
+        message: "Ghazals",
+        data: fresh,
+        err: null,
+        status: HTTP_STATUS.OK,
+      });
+    }
+
+    // Cold
+    const p = fetchGhazals(page, limit, search);
+    inflight.set(key, p);
+    let data;
+    try {
+      data = await p;
+      cache.set(key, data, TTL.SOFT_MS, TTL.HARD_MS);
+    } finally {
+      inflight.delete(key);
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Ghazals fetched successfully (غزلیں حاصل ہوگئیں)",
+        data,
+        err: null,
+        status: HTTP_STATUS.OK,
+      },
+      {
+        status: HTTP_STATUS.OK,
+        headers: {
+          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+          "x-cache": "MISS",
+          "x-time": `${Date.now() - t0}ms`,
+        },
+      }
+    );
+  } catch (error: any) {
+    console.error("Ghazals:", error?.message);
+    const isConn =
+      error?.name?.includes("Mongo") ||
+      error?.name === "MongooseServerSelectionError";
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch deewan-e-ghazal",
+        message: "Failed to fetch ghazals",
         data: null,
-        err: "FETCH_ERROR",
-        details: error instanceof Error ? error.message : String(error),
-        stack: process.env.NODE_ENV === "development" ? error instanceof Error ? error.stack : undefined : undefined,
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        err: isConn ? "DB_UNAVAILABLE" : "FETCH_ERROR",
+        status: isConn
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      {
+        status: isConn
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      }
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  if (searchParams.get("action") !== "purge") {
+    return NextResponse.json(
+      { success: false, message: "Unknown action" },
+      { status: 400 }
+    );
+  }
+  cache.clear();
+  inflight.clear();
+  return NextResponse.json({ success: true, message: "Purged" });
 }
