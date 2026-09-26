@@ -1,24 +1,25 @@
-// app/api/ai/analyze-qata/route.ts
+// app/api/client/ai/analyze/qata/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import QataModel from "@/models/kalam/qata.model";
-import { groq, getGroqConfig, getSystemPrompt } from "@/config/groq.config";
+import {
+  groq,
+  GROQ_MODEL,
+  getGroqConfig,
+  getSystemPrompt,
+} from "@/config/groq.config";
 
-// CACHE
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-// HELPER: Get cache key
+const CACHE_TTL = 60 * 60 * 1000;
 
 function getCacheKey(slug: string, question: string): string {
-  const normalizedQuestion = question?.trim().toLowerCase() || "initial";
-  return `analyze-qata:${slug}:${normalizedQuestion}`;
+  return `ask-qata:${slug}:${question.trim().toLowerCase()}`;
 }
-
-// POST - Analyze Qata with Q&A
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,50 +28,40 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { slug, question } = body;
 
-    if (!slug) {
+    if (!slug || !question?.trim()) {
       return NextResponse.json(
         {
           success: false,
-          message: "Slug is required",
+          message: "Slug and question are required",
           data: null,
-          err: "SLUG_REQUIRED",
+          err: "MISSING_FIELDS",
           status: HTTP_STATUS.BAD_REQUEST,
         },
         { status: HTTP_STATUS.BAD_REQUEST }
       );
     }
 
-    // CHECK CACHE
-
-    const cacheKey = getCacheKey(slug, question || "initial");
+    const cacheKey = getCacheKey(slug, question);
     const cached = cache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
       return NextResponse.json(
         {
           success: true,
-          message: "Qata analysis fetched successfully (cached)",
+          message: "Question answered (cached)",
           data: cached.data,
           err: null,
           status: HTTP_STATUS.OK,
         },
         {
           status: HTTP_STATUS.OK,
-          headers: {
-            "X-Cache": "HIT",
-            "X-Cache-TTL": `${Math.floor((CACHE_TTL - (Date.now() - cached.timestamp)) / 1000)}s`,
-          },
+          headers: { "X-Cache": "HIT" },
         }
       );
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // FETCH QATA FROM DATABASE
-
-    const qata = await QataModel.findOne({ slug })
-      .select("takhallus content metaTitle metaDescription category")
+    const qata: any = await QataModel.findOne({ slug })
+      .select("takhallus slug content metaTitle metaDescription category")
       .lean();
 
     if (!qata) {
@@ -86,144 +77,105 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // BUILD STRUCTURED CONTEXT
-
-    // Build shairs text (qata has exactly 2 shairs)
-    const shairsText = qata.content
-      .map((shair: any, index: number) => {
-        return `Shair ${index + 1}:
-  First line (Misra-e-oola): "${shair.lines[0]}"
-  Second line (Misra-e-sani): "${shair.lines[1]}"`;
-      })
+    const shairsText = (qata.content || [])
+      .map(
+        (shair: any, index: number) =>
+          `Shair ${index + 1}:\n  First:  "${shair.lines?.[0] ?? ""}"\n  Second: "${shair.lines?.[1] ?? ""}"`
+      )
       .join("\n\n");
 
     const fullContext = `
 QATA FULL CONTEXT
 
 POET (TAKHALLUS): ${qata.takhallus}
-TITLE: ${qata.metaTitle || "Untitled"}
 DESCRIPTION: ${qata.metaDescription || "No description"}
 CATEGORIES: ${qata.category?.join(", ") || "None"}
-TOTAL SHAIRS: ${qata.content.length} (Qata must have exactly 2 shairs)
+TOTAL SHAIRS: ${qata.content?.length ?? 0}
 
-📝 ALL SHAIRS (COMPLETE QATA):
-
+ALL SHAIRS:
 ${shairsText}
 
-📌 ABOUT QATA:
-A Qata is a form of Urdu poetry consisting of exactly 2 shairs (couplets).
-It is concise and often conveys a complete thought or message in just four lines.
+USER'S QUESTION:
+"${question}"
 
-${question ? `❓ USER'S QUESTION:\n"${question}"\n` : ""}
-
-📌 INSTRUCTIONS:
-${question ? 
-  `Answer ONLY about THIS specific qata above.
-   Be specific and reference the actual shairs/lines.
-   Provide detailed analysis in a mix of Urdu and English.` :
-  `Please provide a comprehensive analysis of this qata including:
-   - What is this qata about?
-   - Key themes and message
-   - Poetic devices used
-   - Cultural context
-   - Overall impact`
-}
+INSTRUCTIONS:
+- Answer ONLY about THIS specific qata.
+- Reference specific shairs.
+- Respond in a mix of Urdu and English.
 `;
 
-    // GET SYSTEM PROMPT
-
     const config = getGroqConfig("analytical");
-    const systemPrompt = `You are an expert in Urdu poetry, qata'at, and literary analysis.
-Your task is to analyze the provided qata.
-
-ABOUT QATA:
-- A Qata is a form of Urdu poetry with exactly 2 shairs (4 lines total)
-- It is concise and often conveys a complete thought or message
-- Each shair has 2 lines (misra-e-oola and misra-e-sani)
-
-Your analysis should:
-- Reference specific shairs and lines from the qata
-- Provide detailed, insightful analysis
-- Respond in a mix of Urdu and English
-- Be respectful of the poet's work
-- Connect themes, poetic devices, and cultural context
-- Explain the meaning and significance of the qata`;
-
-    // PREPARE MESSAGES
-
-    const chatMessages = [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: fullContext,
-      },
-    ];
-
-    // CALL GROQ API
+    const systemPrompt = getSystemPrompt("ANALYZE_QATA");
 
     const completion = await groq.chat.completions.create({
-      messages: chatMessages,
-      model: "llama-3.3-70b-versatile",
-      temperature: 0.3,
-      max_tokens: 2048,
-      top_p: 0.9,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: fullContext },
+      ],
+      model: GROQ_MODEL,
+      temperature: config.temperature,
+      max_tokens: config.max_tokens,
+      top_p: config.top_p,
+      frequency_penalty: config.frequency_penalty,
+      presence_penalty: config.presence_penalty,
     });
 
-    const analysis = completion.choices[0]?.message?.content || "No analysis generated";
-
-    // BUILD RESPONSE
+    const answer =
+      completion.choices[0]?.message?.content || "No response generated";
 
     const responseData = {
+      question,
+      answer,
+      model: GROQ_MODEL,
       qata: {
         takhallus: qata.takhallus,
         slug: qata.slug,
-        totalShairs: qata.content.length,
+        totalShairs: qata.content?.length ?? 0,
       },
-      analysis,
-      question: question || null,
-      hasQuestion: !!question,
     };
 
-    // STORE IN CACHE
-
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
-
-    console.log(`Cached: ${cacheKey}`);
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
 
     return NextResponse.json(
       {
         success: true,
-        message: question ? "Qata analysis with Q&A generated successfully" : "Qata analysis generated successfully",
+        message: "Question answered successfully",
         data: responseData,
         err: null,
         status: HTTP_STATUS.OK,
       },
       {
         status: HTTP_STATUS.OK,
-        headers: {
-          "X-Cache": "MISS",
-        },
+        headers: { "X-Cache": "MISS" },
       }
     );
-  } catch (error) {
-    console.error("Qata Analysis Error:", error);
+  } catch (error: any) {
+    console.error("Ask Qata Error:", error);
+    const isModelIssue = (error?.status ?? error?.response?.status) === 404;
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to analyze qata",
+        message: isModelIssue
+          ? "AI model unavailable right now"
+          : "Failed to answer question",
         data: null,
-        err: "GROQ_ERROR",
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        err: isModelIssue ? "MODEL_UNAVAILABLE" : "GROQ_ERROR",
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      {
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { success: false, message: "Use POST", err: "METHOD_NOT_ALLOWED", status: 405 },
+    { status: 405 }
+  );
 }

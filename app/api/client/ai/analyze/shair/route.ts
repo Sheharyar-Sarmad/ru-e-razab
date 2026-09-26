@@ -1,24 +1,25 @@
-// app/api/ai/analyze-shair/route.ts
+// app/api/client/ai/analyze/shair/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import ShairModel from "@/models/kalam/shair.model";
-import { groq, getGroqConfig, getSystemPrompt } from "@/config/groq.config";
+import {
+  groq,
+  GROQ_MODEL,
+  getGroqConfig,
+  getSystemPrompt,
+} from "@/config/groq.config";
 
-// CACHE
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-// HELPER: Get cache key
+const CACHE_TTL = 60 * 60 * 1000;
 
 function getCacheKey(slug: string, question: string): string {
-  const normalizedQuestion = question?.trim().toLowerCase() || "initial";
-  return `analyze-shair:${slug}:${normalizedQuestion}`;
+  return `ask-shair:${slug}:${question.trim().toLowerCase()}`;
 }
-
-// POST - Analyze Shair with Q&A
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,50 +28,40 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { slug, question } = body;
 
-    if (!slug) {
+    if (!slug || !question?.trim()) {
       return NextResponse.json(
         {
           success: false,
-          message: "Slug is required",
+          message: "Slug and question are required",
           data: null,
-          err: "SLUG_REQUIRED",
+          err: "MISSING_FIELDS",
           status: HTTP_STATUS.BAD_REQUEST,
         },
         { status: HTTP_STATUS.BAD_REQUEST }
       );
     }
 
-    // CHECK CACHE
-
-    const cacheKey = getCacheKey(slug, question || "initial");
+    const cacheKey = getCacheKey(slug, question);
     const cached = cache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
       return NextResponse.json(
         {
           success: true,
-          message: "Shair analysis fetched successfully (cached)",
+          message: "Question answered (cached)",
           data: cached.data,
           err: null,
           status: HTTP_STATUS.OK,
         },
         {
           status: HTTP_STATUS.OK,
-          headers: {
-            "X-Cache": "HIT",
-            "X-Cache-TTL": `${Math.floor((CACHE_TTL - (Date.now() - cached.timestamp)) / 1000)}s`,
-          },
+          headers: { "X-Cache": "HIT" },
         }
       );
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // FETCH SHAIR FROM DATABASE
-
-    const shair = await ShairModel.findOne({ slug })
-      .select("takhallus content metaTitle metaDescription category")
+    const shair: any = await ShairModel.findOne({ slug })
+      .select("takhallus slug content metaTitle metaDescription category")
       .lean();
 
     if (!shair) {
@@ -86,136 +77,99 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // BUILD STRUCTURED CONTEXT
-
+    /* Shair.content is a flat [String, String] array */
+    const lines = Array.isArray(shair.content) ? shair.content : [];
     const fullContext = `
-SHAIR FULL CONTEXT
+SHAIR (COUPLET) FULL CONTEXT
 
 POET (TAKHALLUS): ${shair.takhallus}
-TITLE: ${shair.metaTitle || "Untitled"}
 DESCRIPTION: ${shair.metaDescription || "No description"}
 CATEGORIES: ${shair.category?.join(", ") || "None"}
 
-📝 THE SHAIR (2 LINES):
+First line (Misra-e-oola): "${lines[0] ?? ""}"
+Second line (Misra-e-sani): "${lines[1] ?? ""}"
 
-First line (Misra-e-oola): "${shair.content[0]}"
-Second line (Misra-e-sani): "${shair.content[1]}"
+USER'S QUESTION:
+"${question}"
 
-📌 ABOUT SHAIR:
-A Shair is a Urdu couplet consisting of exactly 2 lines.
-It is concise, powerful, and often conveys deep meaning in just two lines.
-
-${question ? `❓ USER'S QUESTION:\n"${question}"\n` : ""}
-
-📌 INSTRUCTIONS:
-${question ? 
-  `Answer ONLY about THIS specific shair above.
-   Be specific and reference the actual lines.
-   Provide detailed analysis in a mix of Urdu and English.` :
-  `Please provide a comprehensive analysis of this shair including:
-   - What is this shair about?
-   - Key themes and message
-   - Poetic devices used (metaphor, simile, imagery)
-   - Cultural context
-   - Emotional impact
-   - Deeper meaning and interpretation`
-}
+INSTRUCTIONS:
+- Answer ONLY about THIS specific shair.
+- Reference both lines explicitly.
+- Explain meanings literally and metaphorically.
+- Respond in a mix of Urdu and English.
 `;
 
-    // GET SYSTEM PROMPT
-
     const config = getGroqConfig("analytical");
-    const systemPrompt = `You are an expert in Urdu poetry, shairs, and literary analysis.
-Your task is to analyze the provided shair.
-
-ABOUT SHAIR:
-- A Shair is a Urdu couplet with exactly 2 lines
-- Each line is called a misra (misra-e-oola and misra-e-sani)
-- It is concise, powerful, and often conveys deep meaning
-
-Your analysis should:
-- Reference specific lines from the shair
-- Provide detailed, insightful analysis
-- Respond in a mix of Urdu and English
-- Be respectful of the poet's work
-- Connect themes, poetic devices, and cultural context
-- Explain the meaning and significance of the shair`;
-
-    // PREPARE MESSAGES
-
-    const chatMessages = [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: fullContext,
-      },
-    ];
-
-    // CALL GROQ API
+    const systemPrompt = getSystemPrompt("ANALYZE_SHAIR");
 
     const completion = await groq.chat.completions.create({
-      messages: chatMessages,
-      model: "llama-3.3-70b-versatile",
-      temperature: 0.3,
-      max_tokens: 2048,
-      top_p: 0.9,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: fullContext },
+      ],
+      model: GROQ_MODEL,
+      temperature: config.temperature,
+      max_tokens: config.max_tokens,
+      top_p: config.top_p,
+      frequency_penalty: config.frequency_penalty,
+      presence_penalty: config.presence_penalty,
     });
 
-    const analysis = completion.choices[0]?.message?.content || "No analysis generated";
-
-    // BUILD RESPONSE
+    const answer =
+      completion.choices[0]?.message?.content || "No response generated";
 
     const responseData = {
+      question,
+      answer,
+      model: GROQ_MODEL,
       shair: {
         takhallus: shair.takhallus,
         slug: shair.slug,
-        lines: shair.content,
       },
-      analysis,
-      question: question || null,
-      hasQuestion: !!question,
     };
 
-    // STORE IN CACHE
-
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
-
-    console.log(`Cached: ${cacheKey}`);
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
 
     return NextResponse.json(
       {
         success: true,
-        message: question ? "Shair analysis with Q&A generated successfully" : "Shair analysis generated successfully",
+        message: "Question answered successfully",
         data: responseData,
         err: null,
         status: HTTP_STATUS.OK,
       },
       {
         status: HTTP_STATUS.OK,
-        headers: {
-          "X-Cache": "MISS",
-        },
+        headers: { "X-Cache": "MISS" },
       }
     );
-  } catch (error) {
-    console.error("Shair Analysis Error:", error);
+  } catch (error: any) {
+    console.error("Ask Shair Error:", error);
+    const isModelIssue = (error?.status ?? error?.response?.status) === 404;
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to analyze shair",
+        message: isModelIssue
+          ? "AI model unavailable right now"
+          : "Failed to answer question",
         data: null,
-        err: "GROQ_ERROR",
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        err: isModelIssue ? "MODEL_UNAVAILABLE" : "GROQ_ERROR",
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      {
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { success: false, message: "Use POST", err: "METHOD_NOT_ALLOWED", status: 405 },
+    { status: 405 }
+  );
 }

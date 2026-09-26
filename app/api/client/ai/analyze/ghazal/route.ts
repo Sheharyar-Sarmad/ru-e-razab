@@ -1,40 +1,43 @@
-// app/api/ai/ask-ghazal/route.ts
+// app/api/client/ai/analyze/ghazal/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
 import { ConnectDB } from "@/db/connect.db";
 import GhazalModel from "@/models/kalam/ghazals.model";
-import { groq, getGroqConfig, getSystemPrompt } from "@/config/groq.config";
+import {
+  groq,
+  GROQ_MODEL,
+  getGroqConfig,
+  getSystemPrompt,
+} from "@/config/groq.config";
 
-// In-memory cache store
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* =========================================================
+   IN-MEMORY CACHE
+========================================================= */
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-// HELPER: Get cache key
 function getCacheKey(slug: string, question: string): string {
-  // Create a consistent key from slug and question
-  const normalizedQuestion = question.trim().toLowerCase();
-  return `ask:${slug}:${normalizedQuestion}`;
+  return `ask:${slug}:${question.trim().toLowerCase()}`;
 }
 
-// HELPER: Clear cache for a specific ghazal
 export function clearGhazalCache(slug: string) {
   const prefix = `ask:${slug}:`;
   for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) {
-      cache.delete(key);
-    }
+    if (key.startsWith(prefix)) cache.delete(key);
   }
-  console.log(`Cache cleared for ghazal: ${slug}`);
 }
 
-// HELPER: Clear entire cache
 export function clearAllCache() {
   cache.clear();
-  console.log("All cache cleared");
 }
 
-// POST - Ask a question about a ghazal (with caching)
+/* =========================================================
+   POST
+========================================================= */
 export async function POST(request: NextRequest) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -51,11 +54,11 @@ export async function POST(request: NextRequest) {
           err: "SLUG_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST },
+        { status: HTTP_STATUS.BAD_REQUEST }
       );
     }
 
-    if (!question) {
+    if (!question || !question.trim()) {
       return NextResponse.json(
         {
           success: false,
@@ -64,20 +67,19 @@ export async function POST(request: NextRequest) {
           err: "QUESTION_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST },
+        { status: HTTP_STATUS.BAD_REQUEST }
       );
     }
 
-    // CHECK CACHE FIRST
+    /* ---------- CACHE ---------- */
     const cacheKey = getCacheKey(slug, question);
     const cached = cache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`Cache HIT for: ${cacheKey}`);
       return NextResponse.json(
         {
           success: true,
-          message: "Question answered successfully (cached)",
+          message: "Question answered (cached)",
           data: cached.data,
           err: null,
           status: HTTP_STATUS.OK,
@@ -86,19 +88,17 @@ export async function POST(request: NextRequest) {
           status: HTTP_STATUS.OK,
           headers: {
             "X-Cache": "HIT",
-            "X-Cache-TTL": `${Math.floor((CACHE_TTL - (Date.now() - cached.timestamp)) / 1000)}s`,
+            "X-Cache-TTL": `${Math.floor(
+              (CACHE_TTL - (Date.now() - cached.timestamp)) / 1000
+            )}s`,
           },
-        },
+        }
       );
     }
 
-    console.log(`Cache MISS for: ${cacheKey}`);
-
-    // FETCH GHAZAL FROM DATABASE
-
-    // Fetch ghazal with all details
-    const ghazal = await GhazalModel.findOne({ slug })
-      .select("takhallus content metaTitle metaDescription category")
+    /* ---------- FETCH GHAZAL ---------- */
+    const ghazal: any = await GhazalModel.findOne({ slug })
+      .select("takhallus slug content metaTitle metaDescription category")
       .lean();
 
     if (!ghazal) {
@@ -110,19 +110,16 @@ export async function POST(request: NextRequest) {
           err: "GHAZAL_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND },
+        { status: HTTP_STATUS.NOT_FOUND }
       );
     }
 
-    // BUILD CONTEXT
-
-    // Build FULL structured context (ALL shairs)
-    const shairsText = ghazal.content
-      .map((shair: any, index: number) => {
-        return `Shair ${index + 1}:
-  First line (Misra-e-oola): "${shair.lines[0]}"
-  Second line (Misra-e-sani): "${shair.lines[1]}"`;
-      })
+    /* ---------- BUILD CONTEXT ---------- */
+    const shairsText = (ghazal.content || [])
+      .map(
+        (shair: any, index: number) =>
+          `Shair ${index + 1}:\n  First line (Misra-e-oola): "${shair.lines?.[0] ?? ""}"\n  Second line (Misra-e-sani): "${shair.lines?.[1] ?? ""}"`
+      )
       .join("\n\n");
 
     const fullContext = `
@@ -132,57 +129,35 @@ POET (TAKHALLUS): ${ghazal.takhallus}
 TITLE: ${ghazal.metaTitle || "Untitled"}
 DESCRIPTION: ${ghazal.metaDescription || "No description"}
 CATEGORIES: ${ghazal.category?.join(", ") || "None"}
-TOTAL SHAIRS: ${ghazal.content.length}
+TOTAL SHAIRS: ${ghazal.content?.length ?? 0}
 
-
-📝 ALL SHAIRS (COMPLETE GHAZAL)
-
-
+ALL SHAIRS (COMPLETE GHAZAL):
 ${shairsText}
 
-
-USER'S QUESTION
-
-
+USER'S QUESTION:
 "${question}"
 
-
-INSTRUCTIONS
-
-
-Answer ONLY about THIS specific ghazal above.
-Be specific and reference the actual shairs/lines.
-Provide detailed analysis in a mix of Urdu and English.
+INSTRUCTIONS:
+- Answer ONLY about THIS specific ghazal above.
+- Be specific and reference the actual shairs/lines.
+- Provide detailed analysis in a mix of Urdu and English.
 `;
 
     const config = getGroqConfig("analytical");
-    const systemPrompt = `You are an expert in Urdu poetry, ghazals, and literary analysis.
-Your task is to analyze the provided ghazal and answer the user's question.
-- Always reference specific shairs and lines from the ghazal
-- Provide detailed, insightful analysis
-- Respond in a mix of Urdu and English
-- Be respectful of the poet's work
-- Connect themes, poetic devices, and cultural context`;
+    const systemPrompt = getSystemPrompt("ANALYZE_GHAZAL");
 
-    // CALL GROQ API
-
+    /* ---------- GROQ ---------- */
     const completion = await groq.chat.completions.create({
       messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: fullContext,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: fullContext },
       ],
-      model: "llama-3.3-70b-versatile",
-      temperature: 0.3,
-      max_tokens: 2048,
-      top_p: 0.9,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      model: GROQ_MODEL,
+      temperature: config.temperature,
+      max_tokens: config.max_tokens,
+      top_p: config.top_p,
+      frequency_penalty: config.frequency_penalty,
+      presence_penalty: config.presence_penalty,
     });
 
     const answer =
@@ -191,20 +166,15 @@ Your task is to analyze the provided ghazal and answer the user's question.
     const responseData = {
       question,
       answer,
+      model: GROQ_MODEL,
       ghazal: {
         takhallus: ghazal.takhallus,
         slug: ghazal.slug,
-        totalShairs: ghazal.content.length,
+        totalShairs: ghazal.content?.length ?? 0,
       },
     };
 
-    // STORE IN CACHE
-    cache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now(),
-    });
-
-    console.log(`Cached: ${cacheKey}`);
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
 
     return NextResponse.json(
       {
@@ -216,22 +186,45 @@ Your task is to analyze the provided ghazal and answer the user's question.
       },
       {
         status: HTTP_STATUS.OK,
-        headers: {
-          "X-Cache": "MISS",
-        },
-      },
+        headers: { "X-Cache": "MISS" },
+      }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Ask Ghazal Error:", error);
+
+    const status = error?.status ?? error?.response?.status;
+    const isModelIssue = status === 404;
+
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to answer question",
+        message: isModelIssue
+          ? "AI model unavailable right now"
+          : "Failed to answer question",
         data: null,
-        err: "GROQ_ERROR",
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        err: isModelIssue ? "MODEL_UNAVAILABLE" : "GROQ_ERROR",
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
+      {
+        status: isModelIssue
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Use POST to ask a question",
+      data: null,
+      err: "METHOD_NOT_ALLOWED",
+      status: 405,
+    },
+    { status: 405 }
+  );
 }
