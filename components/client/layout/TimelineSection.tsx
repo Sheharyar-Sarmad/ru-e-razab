@@ -56,7 +56,7 @@ const milestones: Milestone[] = [
   },
   {
     year: "شروعات",
-    titleUrdu: "رومانویت کا آغاز",
+    titleUrdu: "رومانویت",
     titleEnglish: "The Romantic Voice Emerges",
     descUrdu:
       "اُن کے کلام میں رومانویت کی وہ شدت تھی جو صرف چند شعراء کو نصیب ہوتی ہے۔ عشق، حسن، اور دلی کیفیات کو اُن سے زیادہ سلیقے سے بیان کرنا کم لوگوں کے بس کی بات ہے۔",
@@ -100,10 +100,9 @@ const milestones: Milestone[] = [
   },
   {
     year: "ادبی حلقے",
-    titleUrdu: "ادبی حلقوں میں نمایاں مقام",
+    titleUrdu: "سوشل میڈیا میں نمایاں مقام",
     titleEnglish: "A Recognised Name in Adbi Circles",
-    descUrdu:
-      "ادبی حلقوں، محافلِ سخن اور ادبی گروہوں میں اُن کا نام عزت سے لیا جاتا ہے۔ بہت سے اہلِ قلم اُن کے کلام کو ایک معیار مانتے ہیں۔",
+    descUrdu:"سوشل میڈیا کے ادبی حلقوں اور ادبی گروہوں میں اُن کا نام عزت سے لیا جاتا ہے۔ بہت سے اہلِ قلم سوشل میڈیا پر اُن کے کلام کو ایک معیار مانتے ہیں۔",
     descEnglish:
       "Respected and celebrated across literary circles, gatherings, and adbi groups — a benchmark for many fellow writers.",
     accent: "#0369A1",
@@ -114,7 +113,7 @@ const milestones: Milestone[] = [
     titleUrdu: "مشاعرے سے کنارہ، شاعری سے وفا",
     titleEnglish: "No Mushaira, Only Poetry",
     descUrdu:
-      "دلچسپ بات یہ ہے کہ اُنہوں نے آج تک کسی مشاعرے میں شرکت نہیں کی۔ نہ کوئی فیس بک پر چہرہ دکھایا، نہ سوشل میڈیا پر خود کو نمایاں کیا۔ اُن کی پہچان صرف اُن کا کلام ہے — اور یہی اُن کی اصل عظمت ہے۔",
+      "دلچسپ بات یہ ہے کہ اُنہوں نے آج تک کسی مشاعرے میں شرکت نہیں کی۔ نہ سوشل میڈیا پر خود کو نمایاں کیا۔ اُن کی پہچان صرف اُن کا کلام ہے — اور یہی اُن کی شخصیت کا آئینہ دار ہے۔",
     descEnglish:
       "Remarkably, he has never attended a mushaira. No face reveal on Facebook. No self-promotion on social media. His identity is his verse — and that is his true greatness.",
     accent: "#7E22CE",
@@ -379,7 +378,7 @@ export default function TimelineSection() {
     if (!sectionRef.current) return;
 
     const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
+      "(prefers-reduced-motion: reduce)",
     ).matches;
 
     const raf = requestAnimationFrame(() => {
@@ -406,7 +405,7 @@ export default function TimelineSection() {
               end: "bottom 80%",
               scrub: 0.4,
             },
-          }
+          },
         );
       }
 
@@ -458,7 +457,7 @@ export default function TimelineSection() {
               scrub: 0.4,
               invalidateOnRefresh: true,
             },
-          }
+          },
         );
       });
 
@@ -523,7 +522,7 @@ export default function TimelineSection() {
             className="font-urdu text-3xl font-normal leading-[1.9] sm:text-4xl md:text-5xl"
             style={{ color: THEME.darkText }}
           >
-            ایک شاعر کا سفر
+            سفرِ شاعر
           </h2>
           <p
             className="font-urdu mx-auto mt-4 max-w-2xl text-sm leading-[2.2] sm:text-base sm:leading-[2.3]"
@@ -694,45 +693,6 @@ export default function TimelineSection() {
               );
             })}
           </ul>
-        </div>
-
-        {/* Closing note */}
-        <div className="timeline-closing mt-20 text-center" dir="rtl">
-          <div
-            className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-full border"
-            style={{
-              borderColor: `${THEME.darkOrange}40`,
-              backgroundColor: `${THEME.darkOrange}10`,
-            }}
-          >
-            <svg
-              className="h-5 w-5"
-              style={{ color: THEME.darkOrange }}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4.318 6.318a4.5 4.5 0 0 0 0 6.364L12 20.364l7.682-7.682a4.5 4.5 0 0 0-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 0 0-6.364 0z"
-              />
-            </svg>
-          </div>
-          <p
-            className="font-urdu mx-auto max-w-2xl text-base leading-[2.2] sm:text-lg sm:leading-[2.3]"
-            style={{ color: THEME.darkText }}
-          >
-            اُن کی شاعری اُن کی پہچان ہے — چہرے کی نہیں، لفظوں کی۔
-          </p>
-          <p
-            className="font-outfit mt-3 text-xs italic opacity-60"
-            style={{ color: THEME.mutedText }}
-            dir="ltr"
-          >
-            His poetry is his identity — not his face, but his words.
-          </p>
         </div>
       </div>
     </section>

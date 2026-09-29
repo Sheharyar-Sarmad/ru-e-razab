@@ -5,20 +5,36 @@
   --font-urdu: var(--font-urdu), "Noto Nastaliq Urdu", serif;
 }
 
-/* 👇 Outfit is applied globally by default */
+/* Outfit is applied globally by default */
 body {
   font-family: var(--font-outfit);
   overflow-x: hidden;
 }
 
 /* =========================================================
+   TEXT SELECTION — Strawberry White + Dark Orange
+========================================================= */
+
+::selection {
+  background: #c2410c;
+  color: #fff7f5;
+}
+
+::-moz-selection {
+  background: #c2410c;
+  color: #fff7f5;
+}
+
+/* =========================================================
    UTILITY CLASSES
 ========================================================= */
+
 .font-urdu {
   font-family: var(--font-urdu), "Noto Nastaliq Urdu", serif;
   direction: rtl;
   text-align: center;
 }
+
 .font-outfit {
   font-family: var(--font-outfit);
 }
@@ -26,83 +42,86 @@ body {
 /* =========================================================
    THEME TOKENS
 ========================================================= */
+
 @layer base {
   :root {
-    --background: #FFF7F5;
-    --foreground: #1A090D;
+    /* Strawberry White */
+    --background: #fff7f5;
+    --foreground: #1a090d;
 
-    --card: #FFF7F5;
-    --card-foreground: #1A090D;
+    --card: #fff7f5;
+    --card-foreground: #1a090d;
 
-    --popover: #FFF7F5;
-    --popover-foreground: #1A090D;
+    --popover: #fff7f5;
+    --popover-foreground: #1a090d;
 
-    --primary: #E5383B;
-    --primary-foreground: #FFF7F5;
+    --primary: #e5383b;
+    --primary-foreground: #fff7f5;
 
-    --secondary: #D9572B;
-    --secondary-foreground: #FFF7F5;
+    --secondary: #d9572b;
+    --secondary-foreground: #fff7f5;
 
-    --muted: #F4C2C2;
-    --muted-foreground: #A4161A;
+    --muted: #f4c2c2;
+    --muted-foreground: #a4161a;
 
-    --accent: #F3A738;
-    --accent-foreground: #1A090D;
+    --accent: #f3a738;
+    --accent-foreground: #1a090d;
 
     --destructive: #660708;
-    --destructive-foreground: #FFF7F5;
+    --destructive-foreground: #fff7f5;
 
-    --border: #F4C2C2;
-    --input: #F4C2C2;
-    --ring: #E5383B;
+    --border: #f4c2c2;
+    --input: #f4c2c2;
+    --ring: #e5383b;
     --radius: 0.75rem;
 
     /* Scrollbar tokens */
-    --scrollbar-track: #1A090D;
-    --scrollbar-thumb-start: #EA580C;
-    --scrollbar-thumb-end: #9A3412;
-    --scrollbar-thumb-hover-start: #F97316;
-    --scrollbar-thumb-hover-end: #C2410C;
+    --scrollbar-track: #1a090d;
+    --scrollbar-thumb-start: #ea580c;
+    --scrollbar-thumb-end: #9a3412;
+    --scrollbar-thumb-hover-start: #f97316;
+    --scrollbar-thumb-hover-end: #c2410c;
   }
 
   .dark {
-    --background: #1A090D;
-    --foreground: #FFF7F5;
+    --background: #1a090d;
+    --foreground: #fff7f5;
 
-    --card: #1A090D;
-    --card-foreground: #FFF7F5;
+    --card: #1a090d;
+    --card-foreground: #fff7f5;
 
-    --popover: #1A090D;
-    --popover-foreground: #FFF7F5;
+    --popover: #1a090d;
+    --popover-foreground: #fff7f5;
 
-    --primary: #E5383B;
-    --primary-foreground: #FFF7F5;
+    --primary: #e5383b;
+    --primary-foreground: #fff7f5;
 
-    --secondary: #D9572B;
-    --secondary-foreground: #FFF7F5;
+    --secondary: #d9572b;
+    --secondary-foreground: #fff7f5;
 
     --muted: #660708;
-    --muted-foreground: #F4C2C2;
+    --muted-foreground: #f4c2c2;
 
-    --accent: #F3A738;
-    --accent-foreground: #1A090D;
+    --accent: #f3a738;
+    --accent-foreground: #1a090d;
 
-    --border: #A4161A;
-    --input: #A4161A;
-    --ring: #E5383B;
+    --border: #a4161a;
+    --input: #a4161a;
+    --ring: #e5383b;
 
     /* Scrollbar tokens — same flame palette works on dark too */
-    --scrollbar-track: #0A0405;
-    --scrollbar-thumb-start: #EA580C;
-    --scrollbar-thumb-end: #9A3412;
-    --scrollbar-thumb-hover-start: #FB923C;
-    --scrollbar-thumb-hover-end: #C2410C;
+    --scrollbar-track: #0a0405;
+    --scrollbar-thumb-start: #ea580c;
+    --scrollbar-thumb-end: #9a3412;
+    --scrollbar-thumb-hover-start: #fb923c;
+    --scrollbar-thumb-hover-end: #c2410c;
   }
 }
 
 /* =========================================================
    BASE BODY
 ========================================================= */
+
 body {
   background-color: var(--background);
   color: var(--foreground);
@@ -110,15 +129,16 @@ body {
 }
 
 /* =========================================================
-   SCROLLBAR — Flame Orange (Cross-browser)
+   SCROLLBAR — Flame Orange
    Y-scroll: hidden but functional
    X-scroll: visible flame bar
 ========================================================= */
 
 /* ----- Webkit (Chrome, Edge, Safari, Brave) ----- */
+
 ::-webkit-scrollbar {
-  width: 0px;          /* hide Y scrollbar visually */
-  height: 10px;        /* X scrollbar visible */
+  width: 0px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -150,24 +170,27 @@ body {
 }
 
 /* ----- Firefox ----- */
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb-start) var(--scrollbar-track);
 }
 
-/* ----- Force vertical scroll hide (fallback) ----- */
+/* ----- Force vertical scroll hide ----- */
+
 html {
-  scrollbar-width: thin;                /* Firefox — Y & X thin */
+  scrollbar-width: thin;
 }
+
 html::-webkit-scrollbar {
-  width: 0px;                           /* Chrome — hide Y */
-  height: 10px;                         /* Chrome — show X */
+  width: 0px;
+  height: 10px;
 }
 
 /* =========================================================
    LENIS SMOOTH SCROLL
-   Recommended base styles from Lenis docs
 ========================================================= */
+
 html.lenis,
 html.lenis body {
   height: auto;
@@ -192,6 +215,7 @@ html.lenis body {
 /* =========================================================
    GLOBAL POLISH
 ========================================================= */
+
 * {
   -webkit-tap-highlight-color: transparent;
 }
@@ -204,20 +228,37 @@ body {
 /* =========================================================
    FONTS
 ========================================================= */
+
 .font-outfit {
-  font-family: var(--font-outfit), system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", sans-serif !important;
+  font-family:
+    var(--font-outfit),
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    sans-serif !important;
 }
 
 .font-urdu {
-  font-family: var(--font-urdu), "Jameel Noori Nastaleeq",
-    "Noto Nastaliq Urdu", serif !important;
+  font-family:
+    var(--font-urdu),
+    "Jameel Noori Nastaleeq",
+    "Noto Nastaliq Urdu",
+    serif !important;
+
   direction: rtl;
 }
 
 /* Global default — Outfit everywhere unless overridden */
+
 html,
 body {
-  font-family: var(--font-outfit), system-ui, -apple-system, "Segoe UI",
-    Roboto, sans-serif;
+  font-family:
+    var(--font-outfit),
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }

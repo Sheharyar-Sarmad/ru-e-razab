@@ -317,7 +317,7 @@ export default function AboutRazab() {
                 dir="rtl"
                 className="font-urdu text-xl leading-[2.25] text-white/90 sm:text-2xl"
               >
-                رازؔ تبریز اردو شاعری کے ان شعراء
+                رزب تبریز اردو شاعری کے ان شعراء
                 میں سے ہیں جن کے ہاں لفظ محض اظہار
                 کا وسیلہ نہیں بلکہ معنی کی ایک وسیع
                 دنیا کا دروازہ ہے۔
@@ -347,9 +347,7 @@ export default function AboutRazab() {
               </p>
             </div>
 
-            {/* ---------------------------------------------------------------- */}
             {/* Literary Characteristics                                         */}
-            {/* ---------------------------------------------------------------- */}
 
             <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[

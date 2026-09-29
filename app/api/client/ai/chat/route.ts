@@ -15,6 +15,7 @@ import NazmModel from "@/models/kalam/nazm.model";
 ========================================================= */
 
 type ChatRole = "user" | "assistant";
+type Lang = "ur" | "en";
 
 interface IncomingMessage {
   role: ChatRole;
@@ -29,6 +30,45 @@ interface ChatRequestBody {
   /** the language the user spoke/typed in, if known */
   language?: "ur" | "en" | "auto";
 }
+
+/* =========================================================
+   CONFIG
+   Groq FREE tier limits differ per model (typically ~30 requests/min,
+   ~1,000 requests/day, ~12K tokens/min). Check yours at
+   https://console.groq.com/settings/limits and tune the env vars below.
+   The GLOBAL limits are deliberately set a little under Groq's real
+   limits so your users get a friendly message from us instead of a
+   raw 429 from Groq.
+========================================================= */
+
+const envInt = (name: string, fallback: number): number => {
+  const n = parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+const LIMITS = {
+  // Per visitor (IP)
+  IP_PER_MINUTE: envInt("CHAT_IP_PER_MINUTE", 6),
+  IP_PER_HOUR: envInt("CHAT_IP_PER_HOUR", 40),
+  IP_PER_DAY: envInt("CHAT_IP_PER_DAY", 120),
+  // Cheap flood guard: counts EVERY request, even cache hits / invalid ones
+  IP_FLOOD_PER_MINUTE: envInt("CHAT_IP_FLOOD_PER_MINUTE", 60),
+  // Whole app (protects the shared Groq free-tier quota)
+  GLOBAL_PER_MINUTE: envInt("CHAT_GLOBAL_PER_MINUTE", 24),
+  GLOBAL_PER_DAY: envInt("CHAT_GLOBAL_PER_DAY", 900),
+  // How many replies one visitor may have "in progress" at once
+  MAX_IN_FLIGHT_PER_IP: 1,
+};
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+const MAX_MESSAGE_CHARS = 2000;
+const MAX_HISTORY_MESSAGES = 5;
+const MAX_HISTORY_CHARS = 1000;
+/** Keeps each reply cheap on the free tier's tokens-per-minute budget. */
+const MAX_OUTPUT_TOKENS = 1024;
 
 /* =========================================================
    CACHE
@@ -56,33 +96,178 @@ function pruneCache() {
 }
 
 /* =========================================================
-   NAIVE IN-MEMORY RATE LIMITING
-   NOTE: this resets on redeploy/restart and is per-instance only.
-   Swap for a shared store (e.g. Redis/Upstash) before scaling to
-   more than one server instance.
+   RATE LIMITING (sliding window)
+   NOTE: this lives in server memory. It resets on redeploy and is
+   per-instance only. On serverless hosts (e.g. Vercel) each instance has
+   its own counters, so for strict enforcement swap the limiter for a
+   shared store such as Upstash Redis (@upstash/ratelimit).
 ========================================================= */
 
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 20;
-const rateLimitBuckets = new Map<string, { count: number; windowStart: number }>();
+interface LimitResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  retryAfterSec: number;
+}
 
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const bucket = rateLimitBuckets.get(ip);
+class SlidingWindowLimiter {
+  private hits = new Map<string, number[]>();
+  private lastSweep = Date.now();
 
-  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitBuckets.set(ip, { count: 1, windowStart: now });
-    return false;
+  constructor(
+    readonly limit: number,
+    readonly windowMs: number
+  ) {}
+
+  private recent(key: string, now: number): number[] {
+    return (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
   }
 
-  bucket.count += 1;
-  return bucket.count > RATE_LIMIT_MAX_REQUESTS;
+  /** Check without counting the request. */
+  peek(key: string): LimitResult {
+    const now = Date.now();
+    this.sweep(now);
+    const arr = this.recent(key, now);
+
+    if (arr.length >= this.limit) {
+      const retryAfterSec = Math.max(1, Math.ceil((arr[0] + this.windowMs - now) / 1000));
+      return { allowed: false, limit: this.limit, remaining: 0, retryAfterSec };
+    }
+    return { allowed: true, limit: this.limit, remaining: this.limit - arr.length - 1, retryAfterSec: 0 };
+  }
+
+  /** Count one request. */
+  record(key: string) {
+    const now = Date.now();
+    const arr = this.recent(key, now);
+    arr.push(now);
+    this.hits.set(key, arr);
+  }
+
+  /** Drop stale keys so memory doesn't grow forever. */
+  private sweep(now: number) {
+    if (now - this.lastSweep < MINUTE) return;
+    this.lastSweep = now;
+    for (const [key, arr] of this.hits) {
+      if (arr.length === 0 || now - arr[arr.length - 1] >= this.windowMs) this.hits.delete(key);
+    }
+  }
 }
+
+const ipFlood = new SlidingWindowLimiter(LIMITS.IP_FLOOD_PER_MINUTE, MINUTE);
+const ipPerMinute = new SlidingWindowLimiter(LIMITS.IP_PER_MINUTE, MINUTE);
+const ipPerHour = new SlidingWindowLimiter(LIMITS.IP_PER_HOUR, HOUR);
+const ipPerDay = new SlidingWindowLimiter(LIMITS.IP_PER_DAY, DAY);
+const globalPerMinute = new SlidingWindowLimiter(LIMITS.GLOBAL_PER_MINUTE, MINUTE);
+const globalPerDay = new SlidingWindowLimiter(LIMITS.GLOBAL_PER_DAY, DAY);
+
+const inFlight = new Map<string, number>();
+
+/** If Groq itself answers 429, we stop calling it until this timestamp. */
+let groqCooldownUntil = 0;
+let groqCooldownIsDaily = false;
 
 function getClientIp(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
   return request.headers.get("x-real-ip") || "unknown";
+}
+
+/* =========================================================
+   FRIENDLY MESSAGES (English + Urdu)
+========================================================= */
+
+type LimitScope =
+  | "flood"
+  | "ip_minute"
+  | "ip_hour"
+  | "ip_day"
+  | "global_minute"
+  | "global_day"
+  | "provider"
+  | "provider_daily"
+  | "busy"
+  | "unavailable";
+
+const RATE_MESSAGES: Record<LimitScope, Record<Lang, string>> = {
+  flood: {
+    en: "We're receiving too many requests from you. Please try again in {wait}.",
+    ur: "آپ کی طرف سے بہت زیادہ درخواستیں موصول ہو رہی ہیں۔ براہِ کرم {wait} بعد دوبارہ کوشش کریں۔",
+  },
+  ip_minute: {
+    en: "You're sending messages a little too fast. Please wait {wait} and ask again.",
+    ur: "آپ بہت تیزی سے پیغامات بھیج رہے ہیں۔ براہِ کرم {wait} انتظار کریں، پھر دوبارہ پوچھیں۔",
+  },
+  ip_hour: {
+    en: "You've reached the hourly chat limit. You can continue in {wait}.",
+    ur: "آپ ایک گھنٹے کی گفتگو کی حد تک پہنچ گئے ہیں۔ {wait} بعد آپ دوبارہ گفتگو جاری رکھ سکتے ہیں۔",
+  },
+  ip_day: {
+    en: "You've used up today's chat limit. Please come back in {wait}.",
+    ur: "آج کی گفتگو کی حد پوری ہو چکی ہے۔ براہِ کرم {wait} بعد تشریف لائیے۔",
+  },
+  global_minute: {
+    en: "Many people are chatting right now. Please try again in {wait}.",
+    ur: "اس وقت بہت سے لوگ گفتگو کر رہے ہیں۔ براہِ کرم {wait} بعد دوبارہ کوشش کریں۔",
+  },
+  global_day: {
+    en: "The AI assistant has reached its daily capacity. Please try again in {wait}.",
+    ur: "اے آئی اسسٹنٹ آج کی مجموعی حد تک پہنچ چکا ہے۔ براہِ کرم {wait} بعد دوبارہ کوشش کریں۔",
+  },
+  provider: {
+    en: "The AI service is a bit busy at the moment. Please try again in {wait}.",
+    ur: "اے آئی سروس اس وقت کچھ مصروف ہے۔ براہِ کرم {wait} بعد دوبارہ کوشش کریں۔",
+  },
+  provider_daily: {
+    en: "The AI service has reached its daily limit. Please try again in {wait}.",
+    ur: "اے آئی سروس آج کی حد تک پہنچ چکی ہے۔ براہِ کرم {wait} بعد دوبارہ کوشش کریں۔",
+  },
+  busy: {
+    en: "Your previous message is still being answered. Please wait for the reply before sending another.",
+    ur: "آپ کے پچھلے پیغام کا جواب ابھی تیار ہو رہا ہے۔ براہِ کرم نیا پیغام بھیجنے سے پہلے جواب کا انتظار کریں۔",
+  },
+  unavailable: {
+    en: "The AI service is temporarily unavailable. Please try again in a little while.",
+    ur: "اے آئی سروس عارضی طور پر دستیاب نہیں ہے۔ براہِ کرم کچھ دیر بعد کوشش کریں۔",
+  },
+};
+
+function formatWait(seconds: number, lang: Lang): string {
+  const s = Math.max(1, Math.ceil(seconds));
+  if (s < 60) return lang === "ur" ? `${s} سیکنڈ` : `${s} second${s === 1 ? "" : "s"}`;
+  if (s < 3600) {
+    const m = Math.ceil(s / 60);
+    return lang === "ur" ? `${m} منٹ` : `${m} minute${m === 1 ? "" : "s"}`;
+  }
+  const h = Math.ceil(s / 3600);
+  return lang === "ur" ? `${h} گھنٹے` : `${h} hour${h === 1 ? "" : "s"}`;
+}
+
+function buildRateLimitResponse(
+  scope: LimitScope,
+  retryAfterSec: number,
+  lang: Lang,
+  status: number = 429
+) {
+  const wait = formatWait(retryAfterSec, lang);
+  const message = RATE_MESSAGES[scope][lang].replace("{wait}", wait);
+
+  return NextResponse.json(
+    {
+      success: false,
+      message,
+      data: { scope, retryAfter: retryAfterSec },
+      err: status === 429 ? "RATE_LIMITED" : "SERVICE_UNAVAILABLE",
+      status,
+    },
+    {
+      status,
+      headers: {
+        "Retry-After": String(retryAfterSec),
+        "X-RateLimit-Scope": scope,
+      },
+    }
+  );
 }
 
 /* =========================================================
@@ -92,7 +277,7 @@ function getClientIp(request: NextRequest): string {
 const URDU_ARABIC_RANGE = /[\u0600-\u06FF\u0750-\u077F]/;
 
 /** Roughly guesses whether text is predominantly Urdu script vs. Latin script. */
-function detectLanguage(text: string): "ur" | "en" {
+function detectLanguage(text: string): Lang {
   const urduChars = text.match(new RegExp(URDU_ARABIC_RANGE, "g"))?.length ?? 0;
   const latinChars = text.match(/[A-Za-z]/g)?.length ?? 0;
   return urduChars > latinChars ? "ur" : "en";
@@ -111,6 +296,41 @@ function cleanForSpeech(text: string): string {
     .replace(/\n/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+/* =========================================================
+   INPUT HELPERS
+========================================================= */
+
+/** Escape user text before it goes into a Mongo $regex (prevents regex errors / ReDoS). */
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Never trust client-supplied history: validate shape, cap count and length. */
+function sanitizeHistory(raw: unknown): IncomingMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (m: any) =>
+        m &&
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        m.content.trim().length > 0
+    )
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((m: any) => ({
+      role: m.role as ChatRole,
+      content: (m.content as string).slice(0, MAX_HISTORY_CHARS),
+    }));
+}
+
+/** Reads Retry-After (seconds) from a Groq SDK error, whether headers is a Headers object or a plain object. */
+function getRetryAfterSeconds(error: any): number {
+  const h = error?.headers;
+  const raw = typeof h?.get === "function" ? h.get("retry-after") : h?.["retry-after"];
+  const n = parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 30;
 }
 
 /* =========================================================
@@ -214,13 +434,15 @@ async function getPoetryCollection(query: string): Promise<string> {
   }
 
   if (query.length > 2) {
+    const safeQuery = escapeRegex(query);
+
     const [ghazalResults, shairResults, qataResults, nazmResults] = await Promise.all([
       GhazalModel.find({
         $or: [
-          { takhallus: { $regex: query, $options: "i" } },
-          { "content.0.lines.0": { $regex: query, $options: "i" } },
-          { metaTitle: { $regex: query, $options: "i" } },
-          { category: { $regex: query, $options: "i" } },
+          { takhallus: { $regex: safeQuery, $options: "i" } },
+          { "content.0.lines.0": { $regex: safeQuery, $options: "i" } },
+          { metaTitle: { $regex: safeQuery, $options: "i" } },
+          { category: { $regex: safeQuery, $options: "i" } },
         ],
       })
         .select("takhallus slug content metaTitle category")
@@ -228,10 +450,10 @@ async function getPoetryCollection(query: string): Promise<string> {
         .lean(),
       ShairModel.find({
         $or: [
-          { takhallus: { $regex: query, $options: "i" } },
-          { content: { $regex: query, $options: "i" } },
-          { metaTitle: { $regex: query, $options: "i" } },
-          { category: { $regex: query, $options: "i" } },
+          { takhallus: { $regex: safeQuery, $options: "i" } },
+          { content: { $regex: safeQuery, $options: "i" } },
+          { metaTitle: { $regex: safeQuery, $options: "i" } },
+          { category: { $regex: safeQuery, $options: "i" } },
         ],
       })
         .select("takhallus slug content metaTitle category")
@@ -239,10 +461,10 @@ async function getPoetryCollection(query: string): Promise<string> {
         .lean(),
       QataModel.find({
         $or: [
-          { takhallus: { $regex: query, $options: "i" } },
-          { "content.0.lines.0": { $regex: query, $options: "i" } },
-          { metaTitle: { $regex: query, $options: "i" } },
-          { category: { $regex: query, $options: "i" } },
+          { takhallus: { $regex: safeQuery, $options: "i" } },
+          { "content.0.lines.0": { $regex: safeQuery, $options: "i" } },
+          { metaTitle: { $regex: safeQuery, $options: "i" } },
+          { category: { $regex: safeQuery, $options: "i" } },
         ],
       })
         .select("takhallus slug content metaTitle category")
@@ -250,10 +472,10 @@ async function getPoetryCollection(query: string): Promise<string> {
         .lean(),
       NazmModel.find({
         $or: [
-          { takhallus: { $regex: query, $options: "i" } },
-          { "content.0.lines.0": { $regex: query, $options: "i" } },
-          { metaTitle: { $regex: query, $options: "i" } },
-          { category: { $regex: query, $options: "i" } },
+          { takhallus: { $regex: safeQuery, $options: "i" } },
+          { "content.0.lines.0": { $regex: safeQuery, $options: "i" } },
+          { metaTitle: { $regex: safeQuery, $options: "i" } },
+          { category: { $regex: safeQuery, $options: "i" } },
         ],
       })
         .select("takhallus slug content metaTitle category")
@@ -333,25 +555,40 @@ async function getPoetryCollection(query: string): Promise<string> {
 ========================================================= */
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+  let countedInFlight = false;
+
   try {
-    const ip = getClientIp(request);
-    if (isRateLimited(ip)) {
+    /* ---------- 1. Cheap flood guard (before any parsing / DB work) ---------- */
+    const flood = ipFlood.peek(ip);
+    if (!flood.allowed) {
+      // We don't know the user's language yet, so answer bilingually-safe: English
+      // unless the Accept-Language header prefers Urdu.
+      const headerLang: Lang = (request.headers.get("accept-language") || "").toLowerCase().startsWith("ur")
+        ? "ur"
+        : "en";
+      return buildRateLimitResponse("flood", flood.retryAfterSec, headerLang);
+    }
+    ipFlood.record(ip);
+
+    /* ---------- 2. Parse + validate ---------- */
+    let body: ChatRequestBody;
+    try {
+      body = (await request.json()) as ChatRequestBody;
+    } catch {
       return NextResponse.json(
         {
           success: false,
-          message: "Too many requests. Please slow down and try again shortly.",
+          message: "Invalid request body",
           data: null,
-          err: "RATE_LIMITED",
-          status: HTTP_STATUS.TOO_MANY_REQUESTS ?? 429,
+          err: "INVALID_BODY",
+          status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: 429 }
+        { status: HTTP_STATUS.BAD_REQUEST }
       );
     }
 
-    await ConnectDB(EnvSecrets.mongoUri as string);
-
-    const body = (await request.json()) as ChatRequestBody;
-    const { message, messages = [], voiceMode = false, language = "auto" } = body;
+    const { message, voiceMode = false, language = "auto" } = body;
 
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
@@ -366,11 +603,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const trimmedMessage = message.trim().slice(0, 2000);
+    const trimmedMessage = message.trim().slice(0, MAX_MESSAGE_CHARS);
+    const history = sanitizeHistory(body.messages);
+    const userLang: Lang = language === "ur" || language === "en" ? language : detectLanguage(trimmedMessage);
 
-    // CHECK CACHE
-
-    const cacheKey = buildCacheKey(trimmedMessage, messages, voiceMode);
+    /* ---------- 3. Cache (cache hits cost nothing, so they are NOT rate limited) ---------- */
+    const cacheKey = buildCacheKey(trimmedMessage, history, voiceMode);
     const cached = chatCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -383,8 +621,42 @@ export async function POST(request: NextRequest) {
 
     console.log("Cache MISS");
 
-    // GET FULL POETRY COLLECTION
+    /* ---------- 4. Is Groq itself cooling down after a 429? ---------- */
+    const cooldownLeft = Math.ceil((groqCooldownUntil - Date.now()) / 1000);
+    if (cooldownLeft > 0) {
+      return buildRateLimitResponse(groqCooldownIsDaily ? "provider_daily" : "provider", cooldownLeft, userLang);
+    }
 
+    /* ---------- 5. Layered rate limits (only for requests that will call Groq) ---------- */
+    const checks: { scope: LimitScope; limiter: SlidingWindowLimiter; key: string }[] = [
+      { scope: "ip_minute", limiter: ipPerMinute, key: ip },
+      { scope: "ip_hour", limiter: ipPerHour, key: ip },
+      { scope: "ip_day", limiter: ipPerDay, key: ip },
+      { scope: "global_minute", limiter: globalPerMinute, key: "global" },
+      { scope: "global_day", limiter: globalPerDay, key: "global" },
+    ];
+
+    for (const c of checks) {
+      const result = c.limiter.peek(c.key);
+      if (!result.allowed) {
+        return buildRateLimitResponse(c.scope, result.retryAfterSec, userLang);
+      }
+    }
+
+    // One reply at a time per visitor (stops double-sends and spam-clicking)
+    if ((inFlight.get(ip) ?? 0) >= LIMITS.MAX_IN_FLIGHT_PER_IP) {
+      return buildRateLimitResponse("busy", 3, userLang);
+    }
+
+    // All checks passed: now count the request everywhere
+    checks.forEach((c) => c.limiter.record(c.key));
+    inFlight.set(ip, (inFlight.get(ip) ?? 0) + 1);
+    countedInFlight = true;
+
+    /* ---------- 6. Do the real work ---------- */
+    await ConnectDB(EnvSecrets.mongoUri as string);
+
+    // GET FULL POETRY COLLECTION
     let poetryCollection = "";
     try {
       poetryCollection = await getPoetryCollection(trimmedMessage);
@@ -395,7 +667,6 @@ export async function POST(request: NextRequest) {
     }
 
     // GET SYSTEM PROMPT
-
     let systemPrompt = getSystemPrompt("CHAT");
 
     systemPrompt = systemPrompt.replace(
@@ -421,13 +692,12 @@ The user is listening to your reply out loud through text-to-speech.
     }
 
     // PREPARE MESSAGES
-
     const chatMessages = [
       {
         role: "system",
         content: systemPrompt,
       },
-      ...messages.slice(-5).map((msg) => ({
+      ...history.map((msg) => ({
         role: msg.role === "user" ? "user" : "assistant",
         content: msg.content,
       })),
@@ -438,14 +708,13 @@ The user is listening to your reply out loud through text-to-speech.
     ];
 
     // CALL GROQ API
-
     const config = getGroqConfig("chat");
 
     const completion = await groq.chat.completions.create({
       messages: chatMessages,
       model: GROQ_MODEL,
       temperature: config.temperature,
-      max_tokens: config.max_tokens,
+      max_tokens: Math.min(config.max_tokens ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS),
       top_p: config.top_p,
       frequency_penalty: config.frequency_penalty,
       presence_penalty: config.presence_penalty,
@@ -474,12 +743,35 @@ The user is listening to your reply out loud through text-to-speech.
     });
     pruneCache();
 
+    const remaining = ipPerMinute.peek(ip).remaining;
+
     return NextResponse.json(responseData, {
       status: HTTP_STATUS.OK,
-      headers: { "X-Cache": "MISS" },
+      headers: {
+        "X-Cache": "MISS",
+        "X-RateLimit-Limit": String(LIMITS.IP_PER_MINUTE),
+        "X-RateLimit-Remaining": String(Math.max(0, remaining)),
+      },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Chat Error:", error);
+
+    const status = error?.status ?? error?.response?.status;
+    const lang: Lang = "en"; // body may not have been parsed if we got here early
+
+    // Groq told us we're over ITS limit (free tier). Pause calls so we stop hammering it.
+    if (status === 429) {
+      const retryAfter = getRetryAfterSeconds(error);
+      groqCooldownUntil = Date.now() + retryAfter * 1000;
+      groqCooldownIsDaily = retryAfter > 5 * 60; // long waits usually mean the daily quota
+      return buildRateLimitResponse(groqCooldownIsDaily ? "provider_daily" : "provider", retryAfter, lang);
+    }
+
+    // Groq overloaded / down
+    if (status === 500 || status === 502 || status === 503 || status === 504) {
+      return buildRateLimitResponse("unavailable", 30, lang, 503);
+    }
+
     return NextResponse.json(
       {
         success: false,
@@ -490,5 +782,11 @@ The user is listening to your reply out loud through text-to-speech.
       },
       { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
     );
+  } finally {
+    if (countedInFlight) {
+      const left = (inFlight.get(ip) ?? 1) - 1;
+      if (left <= 0) inFlight.delete(ip);
+      else inFlight.set(ip, left);
+    }
   }
 }

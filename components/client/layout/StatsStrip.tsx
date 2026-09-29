@@ -736,7 +736,7 @@ export default function StatsStrip() {
             className="font-urdu text-3xl font-normal leading-[1.9] sm:text-4xl md:text-5xl"
             style={{ color: THEME.darkText }}
           >
-            اعداد و شمار میں رزب
+            اعداد  و  شمار
           </h2>
           <motion.div
             initial={{ scaleX: 0, opacity: 0 }}
