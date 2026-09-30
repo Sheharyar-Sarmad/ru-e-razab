@@ -1,5 +1,6 @@
 // models/kalam/qata.model.ts
 import { Schema, models, model, Types } from "mongoose";
+import { makeSlug } from "@/lib/slugify";
 
 interface Comment {
   user: Types.ObjectId;
@@ -443,27 +444,25 @@ QataSchema.index(
 // MIDDLEWARE 
 
 QataSchema.pre("validate", function () {
-  if (this.content?.[0]?.lines?.[0]) {
-    this.slug = this.content[0].lines[0]
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+  const firstLine = this.content?.[0]?.lines?.[0];
+
+  // Slug: only on create or when content changes, so old URLs don't break
+  if ((this.isNew || this.isModified("content")) && firstLine) {
+    const base = makeSlug(firstLine) || "qata";
+    // Last 6 chars of _id keep the unique index from ever colliding
+    this.slug = `${base}-${this._id.toString().slice(-6)}`;
   }
 
-  if (!this.metaTitle && this.content?.[0]?.lines?.[0]) {
-    const firstLine = this.content[0].lines[0];
+  if (!this.metaTitle && firstLine) {
     this.metaTitle = `${firstLine} - ${this.takhallus || "Qata"}`.slice(0, 60);
   }
 
-  if (!this.metaDescription && this.content) {
-    const lines = this.content.flatMap((s: any) => s.lines);
-    const text = lines.join(" ").slice(0, 150);
-    this.metaDescription = `${text}... Read the complete qata by ${this.takhallus || "the poet"}.`.slice(0, 160);
+  if (!this.metaDescription && this.content?.length) {
+    const text = this.content.flatMap((s) => s.lines).join(" ").slice(0, 150);
+    this.metaDescription =
+      `${text}... Read the complete qata by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
 
-  // Set publishedAt if not set
   if (!this.publishedAt) {
     this.publishedAt = new Date();
   }

@@ -1,5 +1,6 @@
 // models/kalam/nazm.model.ts
 import { Schema, models, model, Types } from "mongoose";
+import { makeSlug } from "@/lib/slugify";
 
 interface Comment {
   user: Types.ObjectId;
@@ -496,17 +497,28 @@ NazmSchema.index(
 // MIDDLEWARE 
 
 NazmSchema.pre("validate", function () {
-  // Generate slug from unwan if not provided
-  if (!this.slug && this.unwan) {
-    this.slug = this.unwan
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+  // Slug: generate on create, or when the title changes.
+  // If you'd rather let admins set a custom slug, keep the `!this.slug` check
+  // and drop the isModified("unwan") part.
+  if ((this.isNew || this.isModified("unwan")) && this.unwan) {
+    const base = makeSlug(this.unwan) || "nazm";
+    // Last 6 chars of _id keep the unique index from ever colliding
+    this.slug = `${base}-${this._id.toString().slice(-6)}`;
   }
 
-  // Set publishedAt if not set
+  if (!this.metaTitle && this.unwan) {
+    this.metaTitle = `${this.unwan} - ${this.takhallus || "Nazm"}`.slice(0, 60);
+  }
+
+  if (!this.metaDescription && this.content?.length) {
+    const text = this.content
+      .flatMap((band) => band.shairs.flatMap((s) => s.lines))
+      .join(" ")
+      .slice(0, 150);
+    this.metaDescription =
+      `${text}... Read the complete nazm by ${this.takhallus || "the poet"}.`.slice(0, 160);
+  }
+
   if (!this.publishedAt) {
     this.publishedAt = new Date();
   }

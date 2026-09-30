@@ -1,5 +1,6 @@
 // models/kalam/ghazals.model.ts
 import { Schema, models, model, Types } from "mongoose";
+import { makeSlug } from "@/lib/slugify"; 
 
 // INTERFACES
 
@@ -519,27 +520,29 @@ GhazalSchema.index(
 // MIDDLEWARE 
 
 GhazalSchema.pre("validate", function () {
-  // Generate slug from first line
-  if (this.content?.[0]?.lines?.[0]) {
-    this.slug = this.content[0].lines[0]
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+  const firstLine = this.content?.[0]?.lines?.[0];
+
+  // Slug: only on create or when content changes, so old URLs don't break
+  if ((this.isNew || this.isModified("content")) && firstLine) {
+    const base = makeSlug(firstLine) || "ghazal";
+    // Last 6 chars of _id keep the unique index from ever colliding
+    this.slug = `${base}-${this._id.toString().slice(-6)}`;
   }
 
   // Auto-generate meta title if not provided
-  if (!this.metaTitle && this.content?.[0]?.lines?.[0]) {
-    const firstLine = this.content[0].lines[0];
+  if (!this.metaTitle && firstLine) {
     this.metaTitle = `${firstLine} - ${this.takhallus || "Ghazal"}`.slice(0, 60);
   }
 
   // Auto-generate meta description if not provided
-  if (!this.metaDescription && this.content) {
-    const lines = this.content.slice(0, 2).flatMap((s: any) => s.lines);
-    const text = lines.join(" ").slice(0, 150);
-    this.metaDescription = `${text}... Read the complete ghazal by ${this.takhallus || "the poet"}.`.slice(0, 160);
+  if (!this.metaDescription && this.content?.length) {
+    const text = this.content
+      .slice(0, 2)
+      .flatMap((s) => s.lines)
+      .join(" ")
+      .slice(0, 150);
+    this.metaDescription =
+      `${text}... Read the complete ghazal by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
 
   // Set publishedAt if not set

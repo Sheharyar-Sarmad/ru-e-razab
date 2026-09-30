@@ -1,5 +1,6 @@
 // models/kalam/shair.model.ts
 import { Schema, models, model, Types } from "mongoose";
+import { makeSlug } from "@/lib/slugify";
 
 interface Comment {
   user: Types.ObjectId;
@@ -484,13 +485,11 @@ ShairSchema.index(
 // MIDDLEWARE 
 
 ShairSchema.pre("validate", function () {
-  if (this.content?.[0]) {
-    this.slug = this.content[0]
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+  // Slug: only on create or when content changes, so old URLs don't break
+  if ((this.isNew || this.isModified("content")) && this.content?.[0]) {
+    const base = makeSlug(this.content[0]) || "shair";
+    // Last 6 chars of _id keep the unique index from ever colliding
+    this.slug = `${base}-${this._id.toString().slice(-6)}`;
   }
 
   if (!this.metaTitle && this.content?.[0]) {
@@ -498,13 +497,12 @@ ShairSchema.pre("validate", function () {
     this.metaTitle = `${firstLine} - ${this.takhallus || "Shair"}`.slice(0, 60);
   }
 
-  if (!this.metaDescription && this.content) {
-    const lines = this.content || [];
-    const text = lines.join(" ").slice(0, 150);
-    this.metaDescription = `${text}... Read the complete shair by ${this.takhallus || "the poet"}.`.slice(0, 160);
+  if (!this.metaDescription && this.content?.length) {
+    const text = this.content.join(" ").slice(0, 150);
+    this.metaDescription =
+      `${text}... Read the complete shair by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
 
-  // Set publishedAt if not set
   if (!this.publishedAt) {
     this.publishedAt = new Date();
   }
