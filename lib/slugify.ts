@@ -73,6 +73,8 @@ const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\uFEFF]/g;
 const SEPARATORS =
   /[\s\u060C\u061B\u061F\u06D4\u066A\u066C\u2026\u2014\u2013,;:!?.\-"()\[\]{}<>\/\\|_]+/;
 
+type State = "S" | "C" | "V"; // start / consonant / vowel
+
 function normalize(input: string): string {
   return (input ?? "")
     .normalize("NFKC")
@@ -98,11 +100,17 @@ function romanizeWord(raw: string): string {
 
   const w = Array.from(word);
   const out: string[] = [];
-  let last: "S" | "C" | "V" = "S"; // start / consonant / vowel
-  let lastC = "";
-  let skipInsert = false;
 
-  const pushV = (s: string) => { out.push(s); last = "V"; };
+  // The `as` casts stop TypeScript from narrowing these to their initial
+  // values (it can't see that the helper functions below reassign them).
+  let last = "S" as State;
+  let lastC = "";
+  let skipInsert = false as boolean;
+
+  const pushV = (s: string) => {
+    out.push(s);
+    last = "V";
+  };
   const pushC = (s: string) => {
     if (last === "C" && !skipInsert) out.push("a"); // break consonant clusters
     skipInsert = false;
@@ -115,26 +123,41 @@ function romanizeWord(raw: string): string {
     const ch = w[i];
     const next = w[i + 1];
 
-    if (DIAC[ch] !== undefined) { pushV(DIAC[ch]); continue; }
-    if (ch === "\u0651") { if (last === "C") out.push(lastC); continue; } // shadda
+    if (DIAC[ch] !== undefined) {
+      pushV(DIAC[ch]);
+      continue;
+    }
+    if (ch === "\u0651") {
+      // shadda: double the previous consonant
+      if ((last as State) === "C") out.push(lastC);
+      continue;
+    }
     if (/[\u064B-\u065F\u0640]/.test(ch)) continue; // jazm, tanween, tatweel...
 
     if (CONS[ch] !== undefined) {
       pushC(CONS[ch]);
-      if (next && DIAC[next] !== undefined) { pushV(DIAC[next]); i++; }
+      if (next && DIAC[next] !== undefined) {
+        pushV(DIAC[next]);
+        i++;
+      }
       continue;
     }
 
     switch (ch) {
       case "ھ": // do-chashmi: bh, ph, kh, th, jh, gh, dh...
-        if (last === "C") { out[out.length - 1] += "h"; lastC += "h"; }
-        else pushC("h");
+        if ((last as State) === "C") {
+          out[out.length - 1] += "h";
+          lastC += "h";
+        } else {
+          pushC("h");
+        }
         break;
 
       case "ہ":
-        if (i === w.length - 1 && last === "C") pushV("a"); // مائدہ → maida
-        else {
-          const afterVowel = last === "V";
+        if (i === w.length - 1 && (last as State) === "C") {
+          pushV("a"); // مائدہ → maida
+        } else {
+          const afterVowel = (last as State) === "V";
           pushC("h");
           if (afterVowel) skipInsert = true; // تاہم → taham
         }
@@ -142,26 +165,63 @@ function romanizeWord(raw: string): string {
 
       case "ا":
       case "ع":
-        if (next && DIAC[next] !== undefined) { pushV(DIAC[next]); i++; }
-        else pushV("a");
+        if (next && DIAC[next] !== undefined) {
+          pushV(DIAC[next]);
+          i++;
+        } else {
+          pushV("a");
+        }
         break;
 
-      case "آ": pushV("aa"); break;
-      case "و": last === "S" ? pushC("w") : pushV("o"); break;
-      case "ی": last === "V" || last === "S" ? pushC("y") : pushV("i"); break;
-      case "ئ": pushV("i"); break;
-      case "ؤ": pushV("o"); break;
-      case "ے": pushV("e"); break;
-      case "ء": break;
-      case "ں": out.push("n"); last = "V"; break;
+      case "آ":
+        pushV("aa");
+        break;
+
+      case "و":
+        if ((last as State) === "S") pushC("w");
+        else pushV("o");
+        break;
+
+      case "ی":
+        if ((last as State) === "V" || (last as State) === "S") pushC("y");
+        else pushV("i");
+        break;
+
+      case "ئ":
+        pushV("i");
+        break;
+
+      case "ؤ":
+        pushV("o");
+        break;
+
+      case "ے":
+        pushV("e");
+        break;
+
+      case "ء":
+        break;
+
+      case "ں":
+        out.push("n");
+        last = "V";
+        break;
 
       default:
-        if (DIGITS[ch] !== undefined) { out.push(DIGITS[ch]); last = "V"; }
-        else if (/[\x00-\x7F]/.test(ch)) { out.push(ch); last = "V"; } // English
-        else if (/\p{L}/u.test(ch)) {
+        if (DIGITS[ch] !== undefined) {
+          out.push(DIGITS[ch]);
+          last = "V";
+        } else if (/[\x00-\x7F]/.test(ch)) {
+          out.push(ch); // English
+          last = "V";
+        } else if (/\p{L}/u.test(ch)) {
           // Never drop an unknown letter: strip accents, else use its codepoint
           const plain = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          out.push(/^[\x00-\x7F]+$/.test(plain) ? plain : `u${ch.codePointAt(0)!.toString(16)}`);
+          out.push(
+            /^[\x00-\x7F]+$/.test(plain)
+              ? plain
+              : `u${ch.codePointAt(0)!.toString(16)}`
+          );
           last = "V";
         } else if (/\p{N}/u.test(ch)) {
           out.push(ch.normalize("NFKD").replace(/[^0-9]/g, ""));
