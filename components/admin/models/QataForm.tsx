@@ -21,6 +21,7 @@ import { useDropzone } from "react-dropzone";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
 const MAX_MEDIA_FILES = 20;
+const QATA_LINES = 4; // 2 shairs x 2 misras
 
 const ALLOWED_COVER_TYPES = [
   "image/jpeg",
@@ -176,6 +177,14 @@ export default function QataForm({
     null
   );
 
+  // Quick paste panel state
+  const [pasteText, setPasteText] = useState("");
+  const [pasteInfo, setPasteInfo] = useState<{
+    lines: number;
+    incomplete: boolean;
+    truncated: boolean;
+  } | null>(null);
+
   const {
     register,
     control,
@@ -205,6 +214,43 @@ export default function QataForm({
     control,
     name: "links",
   });
+
+  // Quick paste (4 lines = 2 اشعار)
+  const fillContent = (lines: string[]) => {
+    const opts = { shouldDirty: true };
+    setValue("content.0.lines.0", lines[0] ?? "", opts);
+    setValue("content.0.lines.1", lines[1] ?? "", opts);
+    setValue("content.1.lines.0", lines[2] ?? "", opts);
+    setValue("content.1.lines.1", lines[3] ?? "", opts);
+  };
+
+  const handlePasteChange = (text: string) => {
+    setPasteText(text);
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    fillContent(lines);
+
+    if (lines.length === 0) {
+      setPasteInfo(null);
+      return;
+    }
+
+    setPasteInfo({
+      lines: lines.length,
+      incomplete: lines.length < QATA_LINES,
+      truncated: lines.length > QATA_LINES,
+    });
+  };
+
+  const clearPaste = () => {
+    setPasteText("");
+    setPasteInfo(null);
+    fillContent([]);
+  };
 
   // Dropzone
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -457,6 +503,8 @@ export default function QataForm({
 
         setMediaFiles([]);
         setCoverImagePreview(null);
+        setPasteText("");
+        setPasteInfo(null);
 
         setTimeout(() => {
           onClose();
@@ -535,6 +583,82 @@ export default function QataForm({
                 {errors.takhallus.message}
               </p>
             )}
+          </div>
+
+          {/* Quick Paste Panel (Recommended) */}
+          <div
+            className="rounded-xl border p-4"
+            style={{
+              borderColor: `${COLORS.deepForest}30`,
+              background: `${COLORS.warmWhite}60`,
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <label
+                className="text-sm font-medium"
+                style={{ color: COLORS.deepForest }}
+              >
+                مکمل قطعہ ایک ساتھ پیسٹ کریں
+              </label>
+              <span
+                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  background: `${COLORS.deepForest}15`,
+                  color: COLORS.deepForest,
+                }}
+              >
+                تجویز کردہ ⭐
+              </span>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-2">
+              ہر مصرع نئی سطر میں لکھیں (کل 4 مصرعے = 2 اشعار)۔ نیچے خانے
+              خودبخود بھر جائیں گے۔
+            </p>
+
+            <textarea
+              value={pasteText}
+              onChange={(e) => handlePasteChange(e.target.value)}
+              rows={6}
+              dir="rtl"
+              placeholder={
+                "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع"
+              }
+              className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
+              style={{
+                borderColor: `${COLORS.deepForest}40`,
+                background: "#FFFFFF",
+              }}
+            />
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs">
+                {pasteInfo && (
+                  <span className="text-gray-600">
+                    {pasteInfo.lines} مصرعے
+                  </span>
+                )}
+                {pasteInfo?.incomplete && (
+                  <span className="mr-3 text-amber-600">
+                    ⚠ قطعہ کے لیے 4 مصرعے چاہئیں، باقی خانے خالی ہیں
+                  </span>
+                )}
+                {pasteInfo?.truncated && (
+                  <span className="mr-3 text-red-500">
+                    ⚠ صرف پہلے 4 مصرعے لیے گئے ہیں
+                  </span>
+                )}
+              </div>
+              {pasteText && (
+                <button
+                  type="button"
+                  onClick={clearPaste}
+                  className="text-xs text-red-500 hover:text-red-700"
+                >
+                  صاف کریں
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Content */}

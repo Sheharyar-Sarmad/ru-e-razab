@@ -233,6 +233,14 @@ export default function ShairForm({
     string | null
   >(null);
 
+  // Quick paste panel state
+  const [pasteText, setPasteText] = useState("");
+  const [pasteInfo, setPasteInfo] = useState<{
+    lines: number;
+    tooFew: boolean;
+    tooMany: boolean;
+  } | null>(null);
+
   // ==========================================================
   // React Hook Form
   // ==========================================================
@@ -270,6 +278,40 @@ export default function ShairForm({
     control,
     name: "links",
   });
+
+  // ==========================================================
+  // Quick Paste (2 lines = 1 شعر)
+  // ==========================================================
+
+  const handlePasteChange = (text: string) => {
+    setPasteText(text);
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    setValue("content.0", lines[0] ?? "", { shouldDirty: true });
+    setValue("content.1", lines[1] ?? "", { shouldDirty: true });
+
+    if (lines.length === 0) {
+      setPasteInfo(null);
+      return;
+    }
+
+    setPasteInfo({
+      lines: lines.length,
+      tooFew: lines.length < 2,
+      tooMany: lines.length > 2,
+    });
+  };
+
+  const clearPaste = () => {
+    setPasteText("");
+    setPasteInfo(null);
+    setValue("content.0", "", { shouldDirty: true });
+    setValue("content.1", "", { shouldDirty: true });
+  };
 
   // ==========================================================
   // Toast Styles
@@ -625,6 +667,8 @@ export default function ShairForm({
 
         setMediaFiles([]);
         setCoverImagePreview(null);
+        setPasteText("");
+        setPasteInfo(null);
 
         setTimeout(() => {
           onClose();
@@ -720,6 +764,83 @@ export default function ShairForm({
                 {errors.takhallus.message}
               </p>
             )}
+          </div>
+
+          {/* ==================================================
+              Quick Paste Panel (Recommended)
+          ================================================== */}
+
+          <div
+            className="rounded-xl border p-4"
+            style={{
+              borderColor: `${COLORS.deepForest}30`,
+              background: `${COLORS.warmWhite}60`,
+            }}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <label
+                className="text-sm font-medium"
+                style={{ color: COLORS.deepForest }}
+              >
+                مکمل شعر ایک ساتھ پیسٹ کریں
+              </label>
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-medium"
+                style={{
+                  background: `${COLORS.deepForest}15`,
+                  color: COLORS.deepForest,
+                }}
+              >
+                تجویز کردہ ⭐
+              </span>
+            </div>
+
+            <p className="mb-2 text-xs text-gray-500">
+              دونوں مصرعے پیسٹ کریں (ہر مصرع نئی سطر میں)۔ نیچے دونوں خانے
+              خودبخود بھر جائیں گے۔
+            </p>
+
+            <textarea
+              value={pasteText}
+              onChange={(e) => handlePasteChange(e.target.value)}
+              rows={4}
+              dir="rtl"
+              placeholder={"پہلا مصرع\nدوسرا مصرع"}
+              className="w-full rounded-lg border px-4 py-3 font-urdu leading-[2.2] focus:ring-2 focus:outline-none"
+              style={{
+                borderColor: `${COLORS.deepForest}40`,
+                background: "#FFFFFF",
+              }}
+            />
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs">
+                {pasteInfo && (
+                  <span className="text-gray-600">
+                    {pasteInfo.lines} مصرعے
+                  </span>
+                )}
+                {pasteInfo?.tooFew && (
+                  <span className="mr-3 text-amber-600">
+                    ⚠ صرف 1 مصرع ملا، دوسرا مصرع خالی ہے
+                  </span>
+                )}
+                {pasteInfo?.tooMany && (
+                  <span className="mr-3 text-red-500">
+                    ⚠ صرف پہلے 2 مصرعے لیے گئے ہیں
+                  </span>
+                )}
+              </div>
+              {pasteText && (
+                <button
+                  type="button"
+                  onClick={clearPaste}
+                  className="text-xs text-red-500 hover:text-red-700"
+                >
+                  صاف کریں
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ==================================================
