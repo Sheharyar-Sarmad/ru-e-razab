@@ -32,10 +32,14 @@ interface SettingsClientProps {
   initialAdmin: AdminData | null;
 }
 
-export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
+export default function SettingsClient({
+  initialAdmin,
+}: SettingsClientProps) {
   const router = useRouter();
+
   const [admin, setAdmin] = useState<AdminData | null>(initialAdmin);
   const [loading, setLoading] = useState(false);
+
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
 
@@ -59,14 +63,18 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
   }, [admin]);
 
   // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent<HTMLFormElement>,
+  ): Promise<void> => {
     e.preventDefault();
 
     // Validate required fields
     if (!firstname.trim() || !lastname.trim() || !email.trim()) {
       toast.error("Please fill in all required fields (Name, Email).", {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
+        style: {
+          background: "#4A2B2B",
+          color: "#FFF3EF",
+        },
       });
       return;
     }
@@ -74,22 +82,33 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
     // Validate password change
     if (newPassword && newPassword !== confirmPassword) {
       toast.error("New password and confirm password do not match.", {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
+        style: {
+          background: "#4A2B2B",
+          color: "#FFF3EF",
+        },
       });
       return;
     }
 
     if (newPassword && newPassword.length < 8) {
       toast.error("Password must be at least 8 characters long.", {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
+        style: {
+          background: "#4A2B2B",
+          color: "#FFF3EF",
+        },
       });
       return;
     }
 
     // Prepare update data
-    const updateData: any = {
+    const updateData: {
+      firstname: string;
+      lastname: string;
+      email: string;
+      phonenumber?: string;
+      currentPassword?: string;
+      newPassword?: string;
+    } = {
       firstname: firstname.trim(),
       lastname: lastname.trim(),
       email: email.trim(),
@@ -109,14 +128,18 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         updateData,
       );
 
-      if (response.data.success) {
+      if (response.data?.success) {
         toast.success("Account updated successfully!", {
-          style: { background: "#2B4735", color: "#FFF3EF" },
-          progressStyle: { background: "#A964FF" },
+          style: {
+            background: "#2B4735",
+            color: "#FFF3EF",
+          },
         });
 
         // Update local admin data
-        setAdmin(response.data.data);
+        if (response.data.data) {
+          setAdmin(response.data.data as AdminData);
+        }
 
         // Clear password fields
         setCurrentPassword("");
@@ -126,16 +149,41 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         // Refresh the page to update sidebar / user info
         router.refresh();
       }
-    } catch (error: any) {
-      const message =
-        error.response?.data?.message || "Failed to update account.";
+    } catch (error: unknown) {
+      let message = "Failed to update account.";
+
+      if (axios.isAxiosError(error)) {
+        const responseMessage = error.response?.data?.message;
+
+        if (typeof responseMessage === "string" && responseMessage.trim()) {
+          message = responseMessage;
+        }
+      }
+
       toast.error(message, {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
+        style: {
+          background: "#4A2B2B",
+          color: "#FFF3EF",
+        },
       });
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetForm = (): void => {
+    if (admin) {
+      setFirstname(admin.firstname || "");
+      setLastname(admin.lastname || "");
+      setEmail(admin.email || "");
+      setPhonenumber(admin.phonenumber || "");
+    }
+
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
   };
 
   const required = <span className="text-red-500 ml-1">*</span>;
@@ -153,7 +201,10 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         draggable
         pauseOnHover
         theme="colored"
-        style={{ width: "auto", maxWidth: "90%" }}
+        style={{
+          width: "auto",
+          maxWidth: "90%",
+        }}
         toastClassName="custom-toast"
       />
 
@@ -165,6 +216,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
           >
             Account Settings
           </h1>
+
           <p className="text-sm text-gray-500 mt-1">
             Update your admin account information
           </p>
@@ -177,13 +229,15 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8"
         >
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Account Name (read‑only) */}
+            {/* Account Name (read-only) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Account Name
               </label>
+
               <div className="relative">
                 <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                 <input
                   type="text"
                   value={admin?.accountname || "—"}
@@ -191,6 +245,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                   className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm cursor-not-allowed"
                 />
               </div>
+
               <p className="text-[10px] text-gray-400 mt-1">
                 Account name cannot be changed.
               </p>
@@ -202,6 +257,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   First Name {required}
                 </label>
+
                 <input
                   type="text"
                   value={firstname}
@@ -211,10 +267,12 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                   placeholder="John"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Last Name {required}
                 </label>
+
                 <input
                   type="text"
                   value={lastname}
@@ -231,8 +289,10 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Email Address {required}
               </label>
+
               <div className="relative">
                 <EnvelopeIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                 <input
                   type="email"
                   value={email}
@@ -252,8 +312,10 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                   (optional, use +923001234567 format)
                 </span>
               </label>
+
               <div className="relative">
                 <PhoneIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                 <input
                   type="tel"
                   value={phonenumber}
@@ -271,28 +333,42 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               <h3 className="text-sm font-semibold text-gray-700 mb-4">
                 Change Password
               </h3>
+
               <div className="space-y-4">
+                {/* Current Password */}
                 {newPassword && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Current Password {required}
                     </label>
+
                     <div className="relative">
                       <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                       <input
                         type={showCurrentPassword ? "text" : "password"}
                         value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        required={!!newPassword}
+                        onChange={(e) =>
+                          setCurrentPassword(e.target.value)
+                        }
+                        required={Boolean(newPassword)}
                         className="w-full pl-9 pr-10 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                         placeholder="Enter current password"
                       />
+
                       <button
                         type="button"
                         onClick={() =>
-                          setShowCurrentPassword(!showCurrentPassword)
+                          setShowCurrentPassword(
+                            (previous) => !previous,
+                          )
                         }
                         className="absolute right-3 top-1/2 -translate-y-1/2"
+                        aria-label={
+                          showCurrentPassword
+                            ? "Hide current password"
+                            : "Show current password"
+                        }
                       >
                         {showCurrentPassword ? (
                           <EyeSlashIcon className="w-4 h-4 text-gray-400" />
@@ -304,6 +380,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                   </div>
                 )}
 
+                {/* New Password */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     New Password
@@ -311,8 +388,10 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                       (leave blank to keep current)
                     </span>
                   </label>
+
                   <div className="relative">
                     <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                     <input
                       type={showNewPassword ? "text" : "password"}
                       value={newPassword}
@@ -320,10 +399,18 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                       className="w-full pl-9 pr-10 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                       placeholder="Enter new password"
                     />
+
                     <button
                       type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      onClick={() =>
+                        setShowNewPassword((previous) => !previous)
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2"
+                      aria-label={
+                        showNewPassword
+                          ? "Hide new password"
+                          : "Show new password"
+                      }
                     >
                       {showNewPassword ? (
                         <EyeSlashIcon className="w-4 h-4 text-gray-400" />
@@ -332,24 +419,30 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
                       )}
                     </button>
                   </div>
+
                   <p className="text-[10px] text-gray-400 mt-1">
                     Password must be at least 8 characters with uppercase,
                     lowercase, number, and special character.
                   </p>
                 </div>
 
+                {/* Confirm New Password */}
                 {newPassword && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Confirm New Password {required}
                     </label>
+
                     <div className="relative">
                       <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                       <input
                         type={showNewPassword ? "text" : "password"}
                         value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        required={!!newPassword}
+                        onChange={(e) =>
+                          setConfirmPassword(e.target.value)
+                        }
+                        required={Boolean(newPassword)}
                         className="w-full pl-9 pr-10 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                         placeholder="Confirm new password"
                       />
@@ -363,21 +456,12 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => {
-                  if (admin) {
-                    setFirstname(admin.firstname || "");
-                    setLastname(admin.lastname || "");
-                    setEmail(admin.email || "");
-                    setPhonenumber(admin.phonenumber || "");
-                  }
-                  setCurrentPassword("");
-                  setNewPassword("");
-                  setConfirmPassword("");
-                }}
+                onClick={resetForm}
                 className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 Reset
               </button>
+
               <button
                 type="submit"
                 disabled={loading}
@@ -407,6 +491,7 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
               ? new Date(admin.createdAt).toLocaleDateString()
               : "—"}
           </p>
+
           <p>
             Last updated:{" "}
             {admin?.updatedAt
@@ -420,23 +505,29 @@ export default function SettingsClient({ initialAdmin }: SettingsClientProps) {
         .custom-toast .Toastify__toast {
           border-radius: 12px !important;
         }
+
         .custom-toast .Toastify__toast--success {
           background: #2b4735 !important;
           color: #fff3ef !important;
         }
+
         .custom-toast .Toastify__toast--success .Toastify__progress-bar {
           background: #a964ff !important;
         }
+
         .custom-toast .Toastify__toast--error {
           background: #4a2b2b !important;
           color: #fff3ef !important;
         }
+
         .custom-toast .Toastify__toast--error .Toastify__progress-bar {
           background: #bd4d23 !important;
         }
+
         .custom-toast .Toastify__toast-body {
           color: #fff3ef !important;
         }
+
         .custom-toast .Toastify__close-button {
           color: #fff3ef !important;
         }

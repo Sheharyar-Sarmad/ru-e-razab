@@ -6,7 +6,6 @@ import UserAccountModel from "@/models/auth/user.account.model";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import { compare } from "bcryptjs";
 import { sign } from "jsonwebtoken";
-import { randomBytes } from "crypto";
 
 // INTERFACES
 interface RateLimitData {
@@ -15,6 +14,16 @@ interface RateLimitData {
   blockedUntil?: number;
   failedAttempts: number;
   lastAttempt: number;
+}
+
+interface UserDocument {
+  _id: any;
+  accountname: string;
+  email: string;
+  firstname: string;
+  lastname: string;
+  phonenumber: string;
+  password?: string;
 }
 
 // RATE LIMITING CONFIGURATION
@@ -32,17 +41,19 @@ const rateLimitStore = new Map<string, RateLimitData>();
 const loginHistory = new Map<string, { attempts: number; lastAttempt: Date }[]>();
 
 // CLEANUP JOB (Runs every hour)
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, data] of rateLimitStore.entries()) {
-    if (data.blockedUntil && now > data.blockedUntil) {
-      rateLimitStore.delete(ip);
+if (typeof global !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, data] of rateLimitStore.entries()) {
+      if (data.blockedUntil && now > data.blockedUntil) {
+        rateLimitStore.delete(ip);
+      }
+      if (now - data.windowStart > RATE_LIMIT_CONFIG.WINDOW_TIME * 2) {
+        rateLimitStore.delete(ip);
+      }
     }
-    if (now - data.windowStart > RATE_LIMIT_CONFIG.WINDOW_TIME * 2) {
-      rateLimitStore.delete(ip);
-    }
-  }
-}, RATE_LIMIT_CONFIG.CLEANUP_INTERVAL);
+  }, RATE_LIMIT_CONFIG.CLEANUP_INTERVAL);
+}
 
 // HELPER FUNCTIONS
 
@@ -75,15 +86,19 @@ const getClientIP = (request: NextRequest): string => {
   if (forwarded) {
     return forwarded.split(",")[0].trim();
   }
+  
+  // Safe extraction matching NextRequest types
+  const nextIp = (request as any).ip; 
+
   return request.headers.get("x-real-ip") || 
          request.headers.get("cf-connecting-ip") || 
          request.headers.get("true-client-ip") ||
-         request.ip || 
+         nextIp || 
          "unknown";
 };
 
 // Generate secure token with fingerprint
-const generateSecureToken = (user: any, fingerprint: string): string => {
+const generateSecureToken = (user: UserDocument, fingerprint: string): string => {
   return sign(
     {
       sub: user._id.toString(),
@@ -120,7 +135,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: `⛔ Too many login attempts. You are blocked for ${remainingMinutes} minutes.`,
+          message: `Too many login attempts. You are blocked for ${remainingMinutes} minutes.`,
           data: null,
           err: "RATE_LIMIT_BLOCKED",
           status: HTTP_STATUS.TOO_MANY_REQUESTS,
@@ -190,7 +205,6 @@ export async function POST(request: NextRequest) {
     rateLimitStore.set(ip, rateData);
 
     const body = await request.json();
-
     const { identifier, password } = body;
 
     if (!identifier || !password) {
@@ -225,7 +239,6 @@ export async function POST(request: NextRequest) {
     const userAgent = request.headers.get("user-agent") || "unknown";
     const fingerprint = `${userAgent}_${ip}`;
 
-    
     await ConnectDB(EnvSecrets.mongoUri as string);
 
     const user = await UserAccountModel.findOne({
@@ -237,8 +250,8 @@ export async function POST(request: NextRequest) {
           : []),
       ],
     })
-      .select("+password") // Include password
-      .lean();
+      .select("+password") 
+      .lean() as UserDocument | null;
 
     if (!user) {
       // Increment failed attempts
@@ -269,7 +282,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Return generic message (don't reveal if user exists)
       return NextResponse.json(
         {
           success: false,
@@ -282,37 +294,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    
-    const isPasswordValid = await compare(password, user.password);
-
-    if (!isPasswordValid) {
-      // Increment failed attempts
+    // Verify Password
+    const isPasswordMatch = await compare(password, user.password || "");
+    if (!isPasswordMatch) {
       rateData.failedAttempts++;
       rateData.count++;
       rateLimitStore.set(ip, rateData);
-
-      // Log failed attempt
       logLoginAttempt(ip, sanitizedIdentifier, false);
-
-      // Check if max failed attempts reached
-      if (rateData.failedAttempts >= RATE_LIMIT_CONFIG.MAX_FAILED_ATTEMPTS) {
-        const blockDuration = getRandomBlockTime();
-        const blockMinutes = Math.ceil(blockDuration / (60 * 1000));
-        
-        rateData.blockedUntil = now + blockDuration;
-        rateLimitStore.set(ip, rateData);
-
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Too many failed attempts. You are blocked for ${blockMinutes} minutes.`,
-            data: null,
-            err: "TOO_MANY_FAILED_ATTEMPTS",
-            status: HTTP_STATUS.TOO_MANY_REQUESTS,
-          },
-          { status: HTTP_STATUS.TOO_MANY_REQUESTS }
-        );
-      }
 
       return NextResponse.json(
         {
@@ -326,27 +314,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    
+    // Reset rate limiter on successful login
     rateLimitStore.delete(ip);
     logLoginAttempt(ip, sanitizedIdentifier, true);
 
- 
+    // Generate JSON Web Token
     const token = generateSecureToken(user, fingerprint);
 
-    
-    const response = NextResponse.json(
+    // Safe sanitized user profile output
+    const { password: _, ...userProfile } = user;
+
+    return NextResponse.json(
       {
         success: true,
-        message: `Welcome back, ${user.firstname}! You have been logged in successfully.`,
+        message: "Login successful",
         data: {
-          user: {
-            id: user._id,
-            accountname: user.accountname,
-            firstname: user.firstname,
-            lastname: user.lastname,
-            email: user.email,
-            phonenumber: user.phonenumber,
-          },
+          token,
+          user: userProfile,
         },
         err: null,
         status: HTTP_STATUS.OK,
@@ -354,36 +338,15 @@ export async function POST(request: NextRequest) {
       { status: HTTP_STATUS.OK }
     );
 
-   
-    response.cookies.set("UserCookie", token, {
-      httpOnly: true,
-      secure: EnvSecrets.appEnv === "production" ? true : false,
-      sameSite: "strict",
-      maxAge: 30 * 24 * 60 * 60, // 30 days
-      path: "/",
-    });
-
-    // Add security headers
-    response.headers.set("X-Content-Type-Options", "nosniff");
-    response.headers.set("X-Frame-Options", "DENY");
-    response.headers.set("X-XSS-Protection", "1; mode=block");
-    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-
-    return response;
-  } catch (err) {
-    console.error(
-      `User Login Error: ${err instanceof Error ? err.message : String(err)}`
-    );
-
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Internal server error",
-        data: null,
-        err: "INTERNAL_SERVER_ERROR",
-        status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
-    );
-  }
+  } catch (error: any) {
+    return NextResponse.json({
+      success: false,
+      message: "An internal server error occurred",
+      data: null,
+      err: error?.message || "INTERNAL_SERVER_ERROR",
+      status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    },
+    { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+  );
+}
 }

@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, ReactNode, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -28,8 +29,8 @@ import {
   PencilSquareIcon,
   MusicalNoteIcon,
   DocumentTextIcon,
-  PlusCircleIcon, // Added
-  MagnifyingGlassIcon, // Added
+  PlusCircleIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import {
   HomeIcon as HomeIconSolid,
@@ -37,10 +38,10 @@ import {
   UserGroupIcon as UserGroupIconSolid,
   Cog6ToothIcon as Cog6ToothIconSolid,
   BookOpenIcon as BookOpenIconSolid,
-  GlobeAltIcon as GlobeAltIconSolid
+  GlobeAltIcon as GlobeAltIconSolid,
 } from "@heroicons/react/24/solid";
 import Image from "next/image";
-import { Brain } from "lucide-react"
+import { Brain } from "lucide-react";
 
 let Logo: any;
 try {
@@ -85,6 +86,12 @@ interface ApiResponse {
   status: number;
 }
 
+interface CustomLink {
+  id: string;
+  label: string;
+  href: string;
+}
+
 const COLORS = {
   warmWhite: "#FFF3EF",
   deepForest: "#2B4735",
@@ -112,6 +119,57 @@ const NAV_COLORS = [
   COLORS.coral,
 ];
 
+/* ---------- Custom link helpers (any website: YouTube, Instagram, etc.) ---------- */
+
+const PLATFORMS: { match: RegExp; name: string; color: string }[] = [
+  { match: /(^|\.)youtube\.com$|(^|\.)youtu\.be$/, name: "YouTube", color: "#FF0000" },
+  { match: /(^|\.)instagram\.com$/, name: "Instagram", color: "#E1306C" },
+  { match: /(^|\.)facebook\.com$|(^|\.)fb\.com$/, name: "Facebook", color: "#1877F2" },
+  { match: /(^|\.)twitter\.com$|(^|\.)x\.com$/, name: "X", color: "#111111" },
+  { match: /(^|\.)tiktok\.com$/, name: "TikTok", color: "#010101" },
+  { match: /(^|\.)linkedin\.com$/, name: "LinkedIn", color: "#0A66C2" },
+  { match: /(^|\.)github\.com$/, name: "GitHub", color: "#24292F" },
+  { match: /(^|\.)whatsapp\.com$|^wa\.me$/, name: "WhatsApp", color: "#25D366" },
+  { match: /(^|\.)t\.me$|(^|\.)telegram\.org$/, name: "Telegram", color: "#229ED9" },
+];
+
+/** Returns a safe absolute http(s) URL or null if invalid */
+const normalizeUrl = (raw: string): string | null => {
+  const value = (raw || "").trim();
+  if (!value) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!url.hostname.includes(".")) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const getHost = (href: string): string => {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
+const getPlatform = (href: string) => {
+  const host = getHost(href);
+  const found = PLATFORMS.find((p) => p.match.test(host));
+  return {
+    name: found?.name || host || "Link",
+    color: found?.color || COLORS.tataBlue,
+  };
+};
+
+const makeId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export default function AdminSidebar({
   children,
   userName: propUserName,
@@ -119,6 +177,7 @@ export default function AdminSidebar({
   userAvatar,
   defaultCollapsed = false,
 }: AdminSidebarProps) {
+  const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
@@ -136,49 +195,84 @@ export default function AdminSidebar({
   const router = useRouter();
 
   // --- CUSTOM LINKS STATE (No DB) ---
-  const [customLinks, setCustomLinks] = useState<{ label: string; href: string }[]>([]);
+  const [customLinks, setCustomLinks] = useState<CustomLink[]>([]);
+  const [linksLoaded, setLinksLoaded] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
-  const [newLinkLabel, setNewLinkLabel] = useState('');
-  const [newLinkHref, setNewLinkHref] = useState('');
-  const [linkSearch, setLinkSearch] = useState('');
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newLinkHref, setNewLinkHref] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
 
   const sidebarRef = useRef<HTMLElement>(null);
   const logoRef = useRef<HTMLDivElement>(null);
   const navItemsRef = useRef<(HTMLDivElement | null)[]>([]);
   const userInfoRef = useRef<HTMLDivElement>(null);
 
-  // Load/Save Custom Links from LocalStorage
+  // Mount flag (needed for portal / SSR safety)
   useEffect(() => {
-    const savedLinks = localStorage.getItem('customAdminLinks');
-    if (savedLinks) {
-      try {
-        setCustomLinks(JSON.parse(savedLinks));
-      } catch (e) {
-        console.error("Failed to parse custom links", e);
+    setMounted(true);
+  }, []);
+
+  // Load custom links
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("customAdminLinks");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const cleaned: CustomLink[] = parsed
+            .map((l: any) => {
+              const href = normalizeUrl(l?.href);
+              if (!href) return null;
+              return {
+                id: l?.id || makeId(),
+                label: (l?.label || getPlatform(href).name).toString(),
+                href,
+              } as CustomLink;
+            })
+            .filter(Boolean) as CustomLink[];
+          setCustomLinks(cleaned);
+        }
       }
+    } catch (e) {
+      console.error("Failed to parse custom links", e);
+    } finally {
+      setLinksLoaded(true);
     }
   }, []);
 
+  // Save custom links (only after initial load)
   useEffect(() => {
-    localStorage.setItem('customAdminLinks', JSON.stringify(customLinks));
-  }, [customLinks]);
+    if (!linksLoaded) return;
+    try {
+      localStorage.setItem("customAdminLinks", JSON.stringify(customLinks));
+    } catch (e) {
+      console.error("Failed to save custom links", e);
+    }
+  }, [customLinks, linksLoaded]);
 
   const handleAddLink = () => {
-    if (newLinkLabel.trim() && newLinkHref.trim()) {
-      setCustomLinks([...customLinks, { label: newLinkLabel.trim(), href: newLinkHref.trim() }]);
-      setNewLinkLabel('');
-      setNewLinkHref('');
-      setShowAddLink(false);
+    const href = normalizeUrl(newLinkHref);
+    if (!href) {
+      setLinkError("Enter a valid website link (e.g. youtube.com/@name)");
+      return;
     }
+    const label = newLinkLabel.trim() || getPlatform(href).name;
+    setCustomLinks((prev) => [...prev, { id: makeId(), label, href }]);
+    setNewLinkLabel("");
+    setNewLinkHref("");
+    setLinkError(null);
+    setShowAddLink(false);
   };
 
-  const handleRemoveLink = (hrefToRemove: string) => {
-    setCustomLinks(customLinks.filter(link => link.href !== hrefToRemove));
+  const handleRemoveLink = (id: string) => {
+    setCustomLinks((prev) => prev.filter((link) => link.id !== id));
   };
 
-  const filteredLinks = customLinks.filter(link => 
-    link.label.toLowerCase().includes(linkSearch.toLowerCase()) || 
-    link.href.toLowerCase().includes(linkSearch.toLowerCase())
+  const filteredLinks = customLinks.filter(
+    (link) =>
+      link.label.toLowerCase().includes(linkSearch.toLowerCase()) ||
+      link.href.toLowerCase().includes(linkSearch.toLowerCase())
   );
 
   // Responsive detection
@@ -189,23 +283,27 @@ export default function AdminSidebar({
       const tablet = width >= 768 && width < 1024;
       setIsMobile(mobile);
       setIsTablet(tablet);
-      
-      if (mobile) {
-        setIsCollapsed(false);
-        setIsOpen(false);
-      } else if (tablet) {
-        const saved = localStorage.getItem("sidebarCollapsed");
-        if (saved !== null) {
-          setIsCollapsed(JSON.parse(saved));
+
+      try {
+        if (mobile) {
+          setIsCollapsed(false);
+          setIsOpen(false);
+        } else if (tablet) {
+          const saved = localStorage.getItem("sidebarCollapsed");
+          if (saved !== null) {
+            setIsCollapsed(JSON.parse(saved));
+          } else {
+            setIsCollapsed(true);
+          }
+          setIsOpen(false);
         } else {
-          setIsCollapsed(true);
+          const saved = localStorage.getItem("sidebarCollapsed");
+          if (saved !== null) {
+            setIsCollapsed(JSON.parse(saved));
+          }
+          setIsOpen(false);
         }
-        setIsOpen(false);
-      } else {
-        const saved = localStorage.getItem("sidebarCollapsed");
-        if (saved !== null) {
-          setIsCollapsed(JSON.parse(saved));
-        }
+      } catch {
         setIsOpen(false);
       }
     };
@@ -269,14 +367,17 @@ export default function AdminSidebar({
     return "A";
   };
 
-  // Animations
+  // Animations (run once the portal content exists)
   useEffect(() => {
+    if (!mounted) return;
+
     if (sidebarRef.current && !isMobile) {
       gsap.from(sidebarRef.current, {
         opacity: 0,
         x: -30,
         duration: 0.6,
         ease: "power2.out",
+        clearProps: "transform,opacity",
       });
     }
 
@@ -313,11 +414,11 @@ export default function AdminSidebar({
     }
 
     return () => {
-      gsap.killTweensOf(sidebarRef.current);
-      gsap.killTweensOf(logoRef.current);
-      gsap.killTweensOf(userInfoRef.current);
+      if (sidebarRef.current) gsap.killTweensOf(sidebarRef.current);
+      if (logoRef.current) gsap.killTweensOf(logoRef.current);
+      if (userInfoRef.current) gsap.killTweensOf(userInfoRef.current);
     };
-  }, [isMobile]);
+  }, [isMobile, mounted]);
 
   // Time update
   useEffect(() => {
@@ -346,7 +447,9 @@ export default function AdminSidebar({
   // Persist collapse state
   useEffect(() => {
     if (!isMobile) {
-      localStorage.setItem("sidebarCollapsed", JSON.stringify(isCollapsed));
+      try {
+        localStorage.setItem("sidebarCollapsed", JSON.stringify(isCollapsed));
+      } catch {}
     }
   }, [isCollapsed, isMobile]);
 
@@ -448,7 +551,7 @@ export default function AdminSidebar({
       label: "View Site",
       href: "/",
       icon: <GlobeAltIcon className="w-5 h-5 flex-shrink-0" />,
-      iconSolid: <GlobeAltIconSolid  className="w-5 h-5 flex-shrink-0" />,
+      iconSolid: <GlobeAltIconSolid className="w-5 h-5 flex-shrink-0" />,
     },
     {
       label: "Jadeed Kalam",
@@ -599,7 +702,7 @@ export default function AdminSidebar({
       );
     }
 
-    // Standard Link (same exact rendering as original)
+    // Standard Link
     return (
       <motion.div
         key={item.label}
@@ -677,148 +780,11 @@ export default function AdminSidebar({
   // Determine if sidebar should be shown as overlay
   const isOverlay = isMobile || isTablet;
 
-  return (
+  // Width of the in-flow spacer on desktop (must match the fixed sidebar width)
+  const spacerWidth = isCollapsed ? "lg:w-20" : "lg:w-[280px]";
+
+  const sidebarUI = (
     <>
-      <style>{`
-        @keyframes emerald-shift {
-          0% { background-position: 0% 50%; }
-          25% { background-position: 100% 50%; }
-          50% { background-position: 100% 50%; }
-          75% { background-position: 0% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-
-        @keyframes gradient-shift {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(0.8); }
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-
-        .admin-sidebar, .admin-sidebar * {
-          opacity: 1 !important;
-        }
-        .admin-sidebar .nav-link {
-          color: var(--nav-color) !important;
-        }
-        .admin-sidebar .nav-link svg {
-          color: var(--nav-color) !important;
-          stroke: currentColor !important;
-        }
-        .admin-sidebar .nav-label {
-          color: var(--nav-color) !important;
-        }
-        .admin-sidebar .user-name,
-        .admin-sidebar .user-email,
-        .admin-sidebar .user-phone {
-          color: var(--text-color) !important;
-        }
-
-        .admin-sidebar {
-          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .sidebar-overlay {
-          transition: opacity 0.3s ease;
-        }
-
-        /* Touch device optimizations */
-        @media (hover: none) {
-          .admin-sidebar .nav-link:hover {
-            transform: none !important;
-          }
-          .admin-sidebar .nav-link:active {
-            transform: scale(0.95) !important;
-          }
-        }
-
-        /* Mobile & Tablet styles */
-        @media (max-width: 1023px) {
-          .admin-sidebar {
-            position: fixed !important;
-            left: 0;
-            top: 0;
-            height: 100vh !important;
-            z-index: 99998 !important;
-            transform: translateX(-100%) !important;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            overflow-y: auto !important;
-          }
-          .admin-sidebar.mobile-open {
-            transform: translateX(0) !important;
-          }
-          .admin-sidebar.mobile-closed {
-            transform: translateX(-100%) !important;
-          }
-          
-          /* Add padding to the entire sidebar content to avoid hamburger */
-          .admin-sidebar .sidebar-inner {
-            padding-top: 70px !important;
-          }
-        }
-
-        /* Desktop styles */
-        @media (min-width: 1024px) {
-          .admin-sidebar {
-            transform: translateX(0) !important;
-            position: sticky !important;
-            top: 0 !important;
-            display: flex !important;
-            height: 100vh !important;
-            z-index: auto !important;
-            overflow-y: auto !important;
-          }
-        }
-
-        /* Hide scrollbar but keep functionality */
-        .admin-sidebar::-webkit-scrollbar {
-          width: 3px;
-        }
-        .admin-sidebar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .admin-sidebar::-webkit-scrollbar-thumb {
-          background: ${COLORS.emeraldGreen}40;
-          border-radius: 10px;
-        }
-        .admin-sidebar::-webkit-scrollbar-thumb:hover {
-          background: ${COLORS.emeraldGreen}60;
-        }
-
-        /* Hamburger button always on top, with glassmorphism */
-        .hamburger-btn {
-          z-index: 99999 !important;
-          -webkit-backdrop-filter: blur(14px);
-          backdrop-filter: blur(14px);
-        }
-        .hamburger-btn:hover {
-          transform: translateY(-1px);
-        }
-        .hamburger-btn:active {
-          transform: translateY(0) scale(0.95);
-        }
-
-        /* Ensure content doesn't overflow */
-        .admin-sidebar .sidebar-inner {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          width: 100%;
-        }
-      `}</style>
-
       {/* Mobile/Tablet Toggle Button */}
       {isOverlay && (
         <button
@@ -878,9 +844,8 @@ export default function AdminSidebar({
         ref={sidebarRef}
         className={`
           admin-sidebar
-          min-h-screen h-full ${sidebarWidth}
+          ${sidebarWidth}
           border-r shadow-xl flex flex-col flex-shrink-0
-          transition-all duration-300 ease-in-out
           ${isOverlay ? (isOpen ? "mobile-open" : "mobile-closed") : ""}
         `}
         style={
@@ -899,14 +864,16 @@ export default function AdminSidebar({
           <div
             ref={logoRef}
             className="px-3 sm:px-4 py-4 sm:py-5 border-b flex-shrink-0 transition-all duration-300"
-            style={{ 
+            style={{
               borderColor: `${COLORS.emeraldGreen}20`,
             }}
           >
             <div className={`flex flex-col items-center gap-2 transition-all duration-300 ${isCollapsed ? "scale-90" : ""}`}>
-              <div className={`relative flex-shrink-0 transition-all duration-300 ${
-                isCollapsed ? "w-10 h-10 sm:w-12 sm:h-12" : "w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20"
-              }`}>
+              <div
+                className={`relative flex-shrink-0 transition-all duration-300 ${
+                  isCollapsed ? "w-10 h-10 sm:w-12 sm:h-12" : "w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20"
+                }`}
+              >
                 {Logo ? (
                   <Image
                     src={Logo}
@@ -985,10 +952,16 @@ export default function AdminSidebar({
               <div className="mt-4 pt-4 border-t" style={{ borderColor: `${COLORS.emeraldGreen}20` }}>
                 <div className="px-2 sm:px-3 mb-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Custom Links</span>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Custom Links
+                    </span>
                     <button
-                      onClick={() => setShowAddLink(!showAddLink)}
+                      onClick={() => {
+                        setShowAddLink(!showAddLink);
+                        setLinkError(null);
+                      }}
                       className="p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      aria-label={showAddLink ? "Close add link form" : "Add link"}
                     >
                       {showAddLink ? <XMarkIcon className="w-4 h-4" /> : <PlusCircleIcon className="w-4 h-4" />}
                     </button>
@@ -1000,24 +973,33 @@ export default function AdminSidebar({
                   <div className="px-2 sm:px-3 mb-2 space-y-2">
                     <input
                       type="text"
-                      placeholder="Label (e.g., My Tool)"
+                      placeholder="Label (optional, e.g., My Channel)"
                       value={newLinkLabel}
                       onChange={(e) => setNewLinkLabel(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddLink()}
                       className="w-full px-3 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                     />
                     <input
                       type="text"
-                      placeholder="URL (e.g., https://example.com)"
+                      inputMode="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      placeholder="Any site: youtube.com/@you, instagram.com/you..."
                       value={newLinkHref}
-                      onChange={(e) => setNewLinkHref(e.target.value)}
+                      onChange={(e) => {
+                        setNewLinkHref(e.target.value);
+                        if (linkError) setLinkError(null);
+                      }}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddLink()}
                       className="w-full px-3 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                     />
+                    {linkError && <p className="text-xs text-red-600">{linkError}</p>}
                     <button
                       onClick={handleAddLink}
-                      disabled={!newLinkLabel.trim() || !newLinkHref.trim()}
+                      disabled={!newLinkHref.trim()}
                       className="w-full py-1.5 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
-                        background: `linear-gradient(135deg, ${COLORS.tataBlue}, ${COLORS.softAmethyst})`
+                        background: `linear-gradient(135deg, ${COLORS.tataBlue}, ${COLORS.softAmethyst})`,
                       }}
                     >
                       Add Link
@@ -1044,26 +1026,42 @@ export default function AdminSidebar({
                 {/* Links List */}
                 <div className="space-y-0.5 px-1">
                   {filteredLinks.length > 0 ? (
-                    filteredLinks.map((link, idx) => (
-                      <div key={idx} className="group relative flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                        <Link
-                          href={link.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 text-sm text-gray-700 truncate hover:text-emerald-700 transition-colors"
+                    filteredLinks.map((link) => {
+                      const platform = getPlatform(link.href);
+                      return (
+                        <div
+                          key={link.id}
+                          className="group relative flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                         >
-                          {link.label}
-                        </Link>
-                        <button
-                          onClick={() => handleRemoveLink(link.href)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-red-100 text-red-500 transition-all"
-                        >
-                          <XMarkIcon className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))
+                          <span
+                            className="flex-shrink-0 w-5 h-5 rounded-md text-white text-[10px] font-bold flex items-center justify-center"
+                            style={{ background: platform.color }}
+                            title={platform.name}
+                          >
+                            {platform.name[0].toUpperCase()}
+                          </span>
+                          <a
+                            href={link.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={link.href}
+                            className="flex-1 text-sm text-gray-700 truncate hover:text-emerald-700 transition-colors"
+                          >
+                            {link.label}
+                          </a>
+                          <button
+                            onClick={() => handleRemoveLink(link.id)}
+                            className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-red-100 text-red-500 transition-all"
+                            aria-label={`Remove ${link.label}`}
+                          >
+                            <XMarkIcon className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })
                   ) : (
-                    customLinks.length > 0 && linkSearch && (
+                    customLinks.length > 0 &&
+                    linkSearch && (
                       <p className="text-xs text-gray-400 text-center py-2">No results found</p>
                     )
                   )}
@@ -1071,7 +1069,6 @@ export default function AdminSidebar({
               </div>
             )}
             {/* --- END CUSTOM LINKS SECTION --- */}
-
           </nav>
 
           {/* Footer Section */}
@@ -1113,13 +1110,19 @@ export default function AdminSidebar({
                     style={{ background: `linear-gradient(135deg, ${COLORS.emeraldGreen}, ${COLORS.darkEmerald})` }}
                   >
                     {userAvatar ? (
-                      <img src={userAvatar} alt={userName} className={`rounded-full object-cover ${
-                        isCollapsed ? "w-6 h-6 sm:w-8 sm:h-8" : "w-7 h-7 sm:w-8 sm:h-8"
-                      }`} />
+                      <img
+                        src={userAvatar}
+                        alt={userName}
+                        className={`rounded-full object-cover ${
+                          isCollapsed ? "w-6 h-6 sm:w-8 sm:h-8" : "w-7 h-7 sm:w-8 sm:h-8"
+                        }`}
+                      />
                     ) : adminData?.firstname && adminData?.lastname ? (
-                      <span className={`flex items-center justify-center font-bold ${
-                        isCollapsed ? "w-6 h-6 text-xs" : "w-7 h-7 sm:w-8 sm:h-8 text-sm"
-                      }`}>
+                      <span
+                        className={`flex items-center justify-center font-bold ${
+                          isCollapsed ? "w-6 h-6 text-xs" : "w-7 h-7 sm:w-8 sm:h-8 text-sm"
+                        }`}
+                      >
                         {getUserInitials()}
                       </span>
                     ) : (
@@ -1132,7 +1135,10 @@ export default function AdminSidebar({
                     <div className="user-name text-xs sm:text-sm font-medium truncate flex items-center gap-1">
                       {loading ? "Loading..." : userName}
                       {adminData && (
-                        <TrophyIcon className="w-2.5 h-2.5 sm:w-3 sm:h-3 flex-shrink-0" style={{ color: COLORS.richMustard }} />
+                        <TrophyIcon
+                          className="w-2.5 h-2.5 sm:w-3 sm:h-3 flex-shrink-0"
+                          style={{ color: COLORS.richMustard }}
+                        />
                       )}
                     </div>
                     <div className="user-email text-[10px] sm:text-xs truncate" style={{ opacity: 0.75 }}>
@@ -1201,6 +1207,159 @@ export default function AdminSidebar({
           </div>
         </div>
       </aside>
+    </>
+  );
+
+  return (
+    <>
+      <style>{`
+        @keyframes emerald-shift {
+          0% { background-position: 0% 50%; }
+          25% { background-position: 100% 50%; }
+          50% { background-position: 100% 50%; }
+          75% { background-position: 0% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+
+        @keyframes gradient-shift {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+
+        .admin-sidebar, .admin-sidebar * {
+          opacity: 1 !important;
+        }
+        .admin-sidebar .nav-link {
+          color: var(--nav-color) !important;
+        }
+        .admin-sidebar .nav-link svg {
+          color: var(--nav-color) !important;
+          stroke: currentColor !important;
+        }
+        .admin-sidebar .nav-label {
+          color: var(--nav-color) !important;
+        }
+        .admin-sidebar .user-name,
+        .admin-sidebar .user-email,
+        .admin-sidebar .user-phone {
+          color: var(--text-color) !important;
+        }
+
+        /* ===== ALWAYS FIXED SIDEBAR (never scrolls away) ===== */
+        .admin-sidebar {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          bottom: 0 !important;
+          height: 100vh !important;
+          height: 100dvh !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sidebar-overlay {
+          transition: opacity 0.3s ease;
+        }
+
+        /* Touch device optimizations */
+        @media (hover: none) {
+          .admin-sidebar .nav-link:hover {
+            transform: none !important;
+          }
+          .admin-sidebar .nav-link:active {
+            transform: scale(0.95) !important;
+          }
+        }
+
+        /* Mobile & Tablet styles (slide-in drawer) */
+        @media (max-width: 1023px) {
+          .admin-sidebar {
+            z-index: 99998 !important;
+            transform: translateX(-100%) !important;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          }
+          .admin-sidebar.mobile-open {
+            transform: translateX(0) !important;
+          }
+          .admin-sidebar.mobile-closed {
+            transform: translateX(-100%) !important;
+          }
+
+          /* Add padding to the entire sidebar content to avoid hamburger */
+          .admin-sidebar .sidebar-inner {
+            padding-top: 70px !important;
+          }
+        }
+
+        /* Desktop styles (permanently fixed on the left) */
+        @media (min-width: 1024px) {
+          .admin-sidebar {
+            transform: translateX(0) !important;
+            display: flex !important;
+            z-index: 40 !important;
+          }
+        }
+
+        /* Hide scrollbar but keep functionality */
+        .admin-sidebar::-webkit-scrollbar {
+          width: 3px;
+        }
+        .admin-sidebar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .admin-sidebar::-webkit-scrollbar-thumb {
+          background: ${COLORS.emeraldGreen}40;
+          border-radius: 10px;
+        }
+        .admin-sidebar::-webkit-scrollbar-thumb:hover {
+          background: ${COLORS.emeraldGreen}60;
+        }
+
+        /* Hamburger button always on top, with glassmorphism */
+        .hamburger-btn {
+          z-index: 99999 !important;
+          -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+        }
+        .hamburger-btn:hover {
+          transform: translateY(-1px);
+        }
+        .hamburger-btn:active {
+          transform: translateY(0) scale(0.95);
+        }
+
+        /* Ensure content doesn't overflow */
+        .admin-sidebar .sidebar-inner {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+        }
+      `}</style>
+
+      {/* In-flow spacer: reserves room on desktop so page content doesn't sit under the fixed sidebar */}
+      <div
+        aria-hidden="true"
+        className={`hidden lg:block flex-shrink-0 transition-all duration-300 ease-in-out ${spacerWidth}`}
+      />
+
+      {/* Sidebar is portaled to <body> so no parent overflow/transform can break "fixed" */}
+      {mounted ? createPortal(sidebarUI, document.body) : null}
     </>
   );
 }

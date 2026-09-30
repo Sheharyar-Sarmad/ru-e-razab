@@ -54,9 +54,7 @@ const MONGO_OPTIONS: mongoose.ConnectOptions = {
   autoCreate: false,  // never let the app create collections
 };
 
-/* =========================================================
-   CONNECT (fast path + promise dedupe + retry)
-========================================================= */
+// CONNECT (fast path + promise dedupe + retry)
 
 export async function ConnectDB(mongoUri: string): Promise<Mongoose> {
   // 1. Already connected → return instantly (< 1 µs)
@@ -151,20 +149,25 @@ function isTransient(err: any): boolean {
 
 // HEALTH CHECK (optional)
 
-export function getConnectionState():
+type ConnectionStateName =
   | "disconnected"
   | "connected"
   | "connecting"
   | "disconnecting"
-  | "uninitialized" {
-  const states = [
-    "disconnected",
-    "connected",
-    "connecting",
-    "disconnecting",
-    "uninitialized",
-  ] as const;
-  return states[mongoose.connection.readyState] ?? "uninitialized";
+  | "uninitialized";
+
+// Mongoose's readyState is 0 | 1 | 2 | 3 | 99 — NOT a contiguous 0–4 range,
+// so a keyed map is used instead of an array lookup.
+const STATE_NAMES: Record<number, ConnectionStateName> = {
+  0: "disconnected",
+  1: "connected",
+  2: "connecting",
+  3: "disconnecting",
+  99: "uninitialized",
+};
+
+export function getConnectionState(): ConnectionStateName {
+  return STATE_NAMES[mongoose.connection.readyState] ?? "uninitialized";
 }
 
 export function isConnected(): boolean {

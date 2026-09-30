@@ -131,7 +131,10 @@ function formatCommentTimestamp(dateInput: string | Date): string {
     month: "short",
     year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
   });
-  const timePart = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const timePart = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
   return `${datePart} • ${timePart}`;
 }
 
@@ -143,8 +146,18 @@ const overlayVariants: Variants = {
 
 const modalVariants: Variants = {
   hidden: { opacity: 0, scale: 0.94, y: 24 },
-  visible: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 260, damping: 26 } },
-  exit: { opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.2, ease: "easeIn" } },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { type: "spring", stiffness: 260, damping: 26 },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.96,
+    y: 16,
+    transition: { duration: 0.2, ease: "easeIn" },
+  },
 };
 
 const commentVariants: Variants = {
@@ -152,7 +165,11 @@ const commentVariants: Variants = {
   show: (i: number) => ({
     opacity: 1,
     x: 0,
-    transition: { duration: 0.35, delay: Math.min(i, 8) * 0.04, ease: "easeOut" },
+    transition: {
+      duration: 0.35,
+      delay: Math.min(i, 8) * 0.04,
+      ease: "easeOut",
+    },
   }),
 };
 
@@ -260,7 +277,9 @@ function ThreeBackground() {
 
 export default function KalamOfTheDay() {
   const [item, setItem] = useState<KalamOfTheDayItem | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">(
+    "loading",
+  );
   const [reaction, setReaction] = useState<ReactionState | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -314,18 +333,27 @@ export default function KalamOfTheDay() {
         },
       });
 
-      tl.from(".kotd-eyebrow", { y: 14, opacity: 0, duration: 0.5, ease: "power3.out" })
-        .from(".kotd-heading", { y: 26, opacity: 0, duration: 0.7, ease: "power3.out" }, "-=0.3")
+      tl.from(".kotd-eyebrow", {
+        y: 14,
+        opacity: 0,
+        duration: 0.5,
+        ease: "power3.out",
+      })
+        .from(
+          ".kotd-heading",
+          { y: 26, opacity: 0, duration: 0.7, ease: "power3.out" },
+          "-=0.3",
+        )
         .fromTo(
           underlineRef.current,
           { scaleX: 0, opacity: 0 },
           { scaleX: 1, opacity: 1, duration: 0.6, ease: "power2.inOut" },
-          "-=0.25"
+          "-=0.25",
         )
         .from(
           cardRef.current,
-          { y: 50, opacity: 0, duration: 0.85, ease: [0.22, 1, 0.36, 1] },
-          "-=0.2"
+          { y: 50, opacity: 0, duration: 0.85, ease: "expo.out" },
+          "-=0.2",
         );
     }, sectionRef);
 
@@ -343,12 +371,18 @@ export default function KalamOfTheDay() {
 
       const prevState = reaction;
       const nextIsLiked = reactionType === "like" ? !prevState.isLiked : false;
-      const nextIsDisliked = reactionType === "dislike" ? !prevState.isDisliked : false;
+      const nextIsDisliked =
+        reactionType === "dislike" ? !prevState.isDisliked : false;
 
       const optimistic: ReactionState = {
-        likesCount: prevState.likesCount + (nextIsLiked ? 1 : 0) - (prevState.isLiked ? 1 : 0),
+        likesCount:
+          prevState.likesCount +
+          (nextIsLiked ? 1 : 0) -
+          (prevState.isLiked ? 1 : 0),
         dislikesCount:
-          prevState.dislikesCount + (nextIsDisliked ? 1 : 0) - (prevState.isDisliked ? 1 : 0),
+          prevState.dislikesCount +
+          (nextIsDisliked ? 1 : 0) -
+          (prevState.isDisliked ? 1 : 0),
         isLiked: nextIsLiked,
         isDisliked: nextIsDisliked,
       };
@@ -356,9 +390,12 @@ export default function KalamOfTheDay() {
       setReaction(optimistic);
 
       try {
-        const res = await apiClient.post(config.likes(item.slug), { reaction: reactionType });
+        const res = await apiClient.post(config.likes(item.slug), {
+          reaction: reactionType,
+        });
         if (res.data?.success) {
-          const { likesCount, dislikesCount, isLiked, isDisliked } = res.data.data;
+          const { likesCount, dislikesCount, isLiked, isDisliked } =
+            res.data.data;
           setReaction({
             likesCount: likesCount ?? optimistic.likesCount,
             dislikesCount: dislikesCount ?? optimistic.dislikesCount,
@@ -372,7 +409,7 @@ export default function KalamOfTheDay() {
         setReaction(prevState);
       }
     },
-    [item, reaction]
+    [item, reaction],
   );
 
   if (status === "error") return null;
@@ -394,7 +431,7 @@ export default function KalamOfTheDay() {
           priority={true}
         />
       </div>
-      
+
       <ThreeBackground />
 
       <div className="relative z-10 mx-auto max-w-5xl w-full">
@@ -413,7 +450,10 @@ export default function KalamOfTheDay() {
           </h2>
           <span
             ref={underlineRef}
-            style={{ backgroundColor: THEME.emeraldGreen, transformOrigin: "center" }}
+            style={{
+              backgroundColor: THEME.emeraldGreen,
+              transformOrigin: "center",
+            }}
             className="mt-8 h-[3px] w-16 rounded-full sm:w-20"
           />
         </div>
@@ -433,10 +473,16 @@ export default function KalamOfTheDay() {
             style={{ borderColor: THEME.border, color: THEME.mutedText }}
             className="mx-auto flex max-w-2xl flex-col items-center rounded-2xl border border-dashed px-8 py-16 text-center"
           >
-            <p dir="rtl" className="font-urdu text-xl leading-relaxed sm:text-2xl" style={{ color: THEME.strawberryWhite }}>
+            <p
+              dir="rtl"
+              className="font-urdu text-xl leading-relaxed sm:text-2xl"
+              style={{ color: THEME.strawberryWhite }}
+            >
               گزشتہ چوبیس گھنٹوں میں کوئی نیا کلام شائع نہیں ہوا۔
             </p>
-            <p className="mt-3 text-sm">Check back soon for today&apos;s Kalam.</p>
+            <p className="mt-3 text-sm">
+              Check back soon for today&apos;s Kalam.
+            </p>
           </motion.div>
         )}
 
@@ -472,7 +518,10 @@ export default function KalamOfTheDay() {
                     initial={{ opacity: 0, scale: 0.7 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.3, duration: 0.4 }}
-                    style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                    style={{
+                      backgroundColor: THEME.emeraldGreen,
+                      color: THEME.strawberryWhite,
+                    }}
                     className="font-urdu absolute right-5 top-5 rounded-full px-3.5 py-1.5 text-sm font-semibold shadow-sm"
                   >
                     {TYPE_URDU[item.type]}
@@ -505,7 +554,10 @@ export default function KalamOfTheDay() {
                 <div className="flex flex-col items-center gap-3 px-8 py-14 text-center">
                   <span
                     dir="rtl"
-                    style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                    style={{
+                      backgroundColor: THEME.emeraldGreen,
+                      color: THEME.strawberryWhite,
+                    }}
                     className="font-urdu rounded-full px-3.5 py-1.5 text-sm font-semibold"
                   >
                     {TYPE_URDU[item.type]}
@@ -535,8 +587,13 @@ export default function KalamOfTheDay() {
                 className="flex flex-col gap-4 border-t px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 bg-white/10"
                 style={{ borderColor: THEME.border }}
               >
-                <div className="flex items-center gap-4 text-sm" style={{ color: THEME.mutedText }}>
-                  <span>Published {formatCommentTimestamp(item.createdAt)}</span>
+                <div
+                  className="flex items-center gap-4 text-sm"
+                  style={{ color: THEME.mutedText }}
+                >
+                  <span>
+                    Published {formatCommentTimestamp(item.createdAt)}
+                  </span>
                 </div>
 
                 <div
@@ -551,7 +608,11 @@ export default function KalamOfTheDay() {
                     aria-label="Like"
                   >
                     <motion.svg
-                      animate={reaction?.isLiked ? { scale: [1, 1.35, 1] } : { scale: 1 }}
+                      animate={
+                        reaction?.isLiked
+                          ? { scale: [1, 1.35, 1] }
+                          : { scale: 1 }
+                      }
                       transition={{ duration: 0.35, ease: "easeOut" }}
                       className="h-4 w-4"
                       viewBox="0 0 24 24"
@@ -573,7 +634,11 @@ export default function KalamOfTheDay() {
                       aria-label="Dislike"
                     >
                       <motion.svg
-                        animate={reaction?.isDisliked ? { scale: [1, 1.35, 1] } : { scale: 1 }}
+                        animate={
+                          reaction?.isDisliked
+                            ? { scale: [1, 1.35, 1] }
+                            : { scale: 1 }
+                        }
                         transition={{ duration: 0.35, ease: "easeOut" }}
                         className="h-4 w-4 rotate-180"
                         viewBox="0 0 24 24"
@@ -594,17 +659,27 @@ export default function KalamOfTheDay() {
                     style={{ color: THEME.mutedText }}
                     aria-label="Comments"
                   >
-                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                    <svg
+                      className="h-4 w-4"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                    >
                       <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
                     </svg>
                     <span>{item.commentsCount}</span>
                   </motion.button>
 
-                  <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                  <motion.div
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
                     <Link
                       href={`${TYPE_ROUTES[item.type]}/${item.slug}`}
                       onClick={(e) => e.stopPropagation()}
-                      style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                      style={{
+                        backgroundColor: THEME.emeraldGreen,
+                        color: THEME.strawberryWhite,
+                      }}
                       className="font-urdu inline-flex h-9 cursor-pointer items-center justify-center rounded-sm px-4 text-sm shadow-sm transition-opacity hover:opacity-90"
                     >
                       کلام پڑھیں
@@ -687,7 +762,10 @@ function KalamOfTheDayPanel({
     }
   };
 
-  const gallery = useMemo(() => (item?.coverImage ? [item.coverImage] : []), [item]);
+  const gallery = useMemo(
+    () => (item?.coverImage ? [item.coverImage] : []),
+    [item],
+  );
 
   return (
     <AnimatePresence>
@@ -710,7 +788,10 @@ function KalamOfTheDayPanel({
             role="dialog"
             aria-modal="true"
             className="fixed left-1/2 top-1/2 z-[61] w-[94%] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl shadow-2xl flex flex-col"
-            style={{ backgroundColor: THEME.strawberryWhite, maxHeight: "88vh" }}
+            style={{
+              backgroundColor: THEME.strawberryWhite,
+              maxHeight: "88vh",
+            }}
           >
             <motion.button
               whileHover={{ scale: 1.08, rotate: 90 }}
@@ -718,11 +799,24 @@ function KalamOfTheDayPanel({
               transition={{ duration: 0.25 }}
               onClick={onClose}
               aria-label="Close"
-              style={{ backgroundColor: THEME.strawberryWhite, color: THEME.darkText }}
+              style={{
+                backgroundColor: THEME.strawberryWhite,
+                color: THEME.darkText,
+              }}
               className="absolute right-4 top-4 z-10 cursor-pointer rounded-full p-2 shadow-md"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.5"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </motion.button>
 
@@ -750,7 +844,10 @@ function KalamOfTheDayPanel({
                   ))}
                   <span
                     dir="rtl"
-                    style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                    style={{
+                      backgroundColor: THEME.emeraldGreen,
+                      color: THEME.strawberryWhite,
+                    }}
                     className="font-urdu absolute left-4 top-4 rounded-full px-3 py-1 text-xs font-semibold shadow-sm"
                   >
                     {TYPE_URDU[item.type]}
@@ -758,7 +855,9 @@ function KalamOfTheDayPanel({
                 </div>
               )}
 
-              <div className={`flex w-full flex-col ${gallery.length > 0 ? "md:w-1/2" : ""}`}>
+              <div
+                className={`flex w-full flex-col ${gallery.length > 0 ? "md:w-1/2" : ""}`}
+              >
                 <motion.div
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -785,30 +884,52 @@ function KalamOfTheDayPanel({
                     </p>
                   )}
 
-                  <p style={{ color: THEME.mutedText }} className="mt-2 text-xs">
+                  <p
+                    style={{ color: THEME.mutedText }}
+                    className="mt-2 text-xs"
+                  >
                     Published {formatCommentTimestamp(item.createdAt)}
                   </p>
 
                   <div className="mt-4 flex items-center gap-3">
-                    <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                    <motion.div
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
                       <Link
                         href={`${TYPE_ROUTES[item.type]}/${item.slug}`}
-                        style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                        style={{
+                          backgroundColor: THEME.emeraldGreen,
+                          color: THEME.strawberryWhite,
+                        }}
                         className="font-urdu inline-flex h-10 cursor-pointer items-center justify-center rounded-sm px-5 text-sm shadow-md transition-opacity hover:opacity-90"
                       >
                         مکمل پڑھیں
                       </Link>
                     </motion.div>
 
-                    <div className="flex items-center gap-3 text-sm" style={{ color: THEME.mutedText }}>
+                    <div
+                      className="flex items-center gap-3 text-sm"
+                      style={{ color: THEME.mutedText }}
+                    >
                       <span className="flex items-center gap-1">
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg
+                          className="h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
                           <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
                         </svg>
                         {reaction?.likesCount ?? item.likesCount}
                       </span>
                       <span className="flex items-center gap-1">
-                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                        <svg
+                          className="h-4 w-4"
+                          fill="currentColor"
+                          viewBox="0 0 24 24"
+                        >
                           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
                         </svg>
                         {item.commentsCount}
@@ -819,66 +940,92 @@ function KalamOfTheDayPanel({
 
                 {/* Comments Section */}
                 <div className="flex flex-col flex-1 bg-white/40 p-6 overflow-hidden">
-                  <h3 dir="rtl" className="font-urdu mb-4 text-xl font-semibold" style={{ color: THEME.darkText }}>
+                  <h3
+                    dir="rtl"
+                    className="font-urdu mb-4 text-xl font-semibold"
+                    style={{ color: THEME.darkText }}
+                  >
                     تبصرے
                   </h3>
                   <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-3">
                     {commentsLoading ? (
-                      <div className="text-center text-sm py-4" style={{ color: THEME.mutedText }}>
+                      <div
+                        className="text-center text-sm py-4"
+                        style={{ color: THEME.mutedText }}
+                      >
                         Loading comments...
                       </div>
                     ) : comments.length > 0 ? (
                       comments.map((comment, i) => (
-                        <motion.div 
-                          key={comment._id} 
-                          custom={i} 
-                          variants={commentVariants} 
-                          initial="hidden" 
-                          animate="show" 
-                          className="rounded-lg p-3 shadow-sm bg-white/80 border" 
+                        <motion.div
+                          key={comment._id}
+                          custom={i}
+                          variants={commentVariants}
+                          initial="hidden"
+                          animate="show"
+                          className="rounded-lg p-3 shadow-sm bg-white/80 border"
                           style={{ borderColor: THEME.border }}
                         >
                           <div className="flex justify-between items-center mb-1">
-                            <span className="font-medium text-sm" style={{ color: THEME.darkText }}>
+                            <span
+                              className="font-medium text-sm"
+                              style={{ color: THEME.darkText }}
+                            >
                               {comment.user?.firstname} {comment.user?.lastname}
                             </span>
-                            <span className="text-xs" style={{ color: THEME.mutedText }}>
+                            <span
+                              className="text-xs"
+                              style={{ color: THEME.mutedText }}
+                            >
                               {formatCommentTimestamp(comment.createdAt)}
                             </span>
                           </div>
-                          <p className="text-sm" style={{ color: THEME.darkText }}>
+                          <p
+                            className="text-sm"
+                            style={{ color: THEME.darkText }}
+                          >
                             {comment.content}
                           </p>
                         </motion.div>
                       ))
                     ) : (
-                      <div className="text-center text-sm py-4" style={{ color: THEME.mutedText }}>
+                      <div
+                        className="text-center text-sm py-4"
+                        style={{ color: THEME.mutedText }}
+                      >
                         No comments yet.
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="mt-4 flex gap-2 pt-2">
-                    <input 
-                      type="text" 
-                      value={newComment} 
-                      onChange={(e) => setNewComment(e.target.value)} 
-                      placeholder="Write a comment..." 
-                      className="flex-1 border rounded-md px-3 py-2 text-sm focus:outline-none" 
-                      style={{ borderColor: THEME.border, color: THEME.darkText }} 
-                      onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment()} 
+                    <input
+                      type="text"
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Write a comment..."
+                      className="flex-1 border rounded-md px-3 py-2 text-sm focus:outline-none"
+                      style={{
+                        borderColor: THEME.border,
+                        color: THEME.darkText,
+                      }}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleSubmitComment()
+                      }
                     />
-                    <button 
-                      onClick={handleSubmitComment} 
-                      disabled={submitting || !newComment.trim()} 
-                      className="px-4 py-2 rounded-md text-sm font-semibold transition-opacity disabled:opacity-50" 
-                      style={{ backgroundColor: THEME.emeraldGreen, color: THEME.strawberryWhite }}
+                    <button
+                      onClick={handleSubmitComment}
+                      disabled={submitting || !newComment.trim()}
+                      className="px-4 py-2 rounded-md text-sm font-semibold transition-opacity disabled:opacity-50"
+                      style={{
+                        backgroundColor: THEME.emeraldGreen,
+                        color: THEME.strawberryWhite,
+                      }}
                     >
                       {submitting ? "..." : "Send"}
                     </button>
                   </div>
                 </div>
-
               </div>
             </div>
           </motion.div>

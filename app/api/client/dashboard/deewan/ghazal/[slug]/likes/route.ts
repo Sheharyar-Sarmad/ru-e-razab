@@ -6,10 +6,25 @@ import { ConnectDB } from "@/db/connect.db";
 import GhazalModel from "@/models/kalam/ghazals.model";
 import jwt from "jsonwebtoken";
 
+/* =========================================================
+   ARRAY HELPERS
+   likes/dislikes hold ObjectIds, but userId from the JWT is a
+   string. Array.includes() compares by reference, so it would
+   ALWAYS be false for ObjectId vs string. Compare as strings.
+========================================================= */
+
+function hasUser(arr: any[] | undefined | null, userId: string): boolean {
+  return !!arr?.some((id: any) => String(id) === userId);
+}
+
+function withoutUser(arr: any[] | undefined | null, userId: string): any[] {
+  return (arr ?? []).filter((id: any) => String(id) !== userId);
+}
+
 // GET - Get Like Status & Count
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -18,12 +33,15 @@ export async function GET(
 
     // Get user from token if available
     const userToken = request.cookies.get("UserCookie")?.value;
-    let userId = null;
+    let userId: string | null = null;
 
     if (userToken) {
       try {
-        const decoded = jwt.verify(userToken, EnvSecrets.jwtSecret as string) as any;
-        userId = decoded._id;
+        const decoded = jwt.verify(
+          userToken,
+          EnvSecrets.jwtSecret as string,
+        ) as any;
+        userId = decoded._id ? String(decoded._id) : null;
       } catch {
         // Token invalid, continue as guest
       }
@@ -42,14 +60,16 @@ export async function GET(
           err: "GHAZAL_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
     const likesCount = ghazal.likes?.length || 0;
     const dislikesCount = ghazal.dislikes?.length || 0;
-    const isLiked = userId ? ghazal.likes?.includes(userId) || false : false;
-    const isDisliked = userId ? ghazal.dislikes?.includes(userId) || false : false;
+    const isLiked = userId ? hasUser(ghazal.likes as any[], userId) : false;
+    const isDisliked = userId
+      ? hasUser(ghazal.dislikes as any[], userId)
+      : false;
 
     return NextResponse.json(
       {
@@ -66,7 +86,7 @@ export async function GET(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Likes Error:", error);
@@ -78,15 +98,15 @@ export async function GET(
         err: "FETCH_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
 
-// POST - Like a Ghazal
+// POST - Like / Dislike a Ghazal
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -104,7 +124,7 @@ export async function POST(
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -120,11 +140,11 @@ export async function POST(
           err: "INVALID_TOKEN",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
-    const userId = decoded._id;
+    const userId = String(decoded._id);
 
     // Parse body for reaction type
     const body = await request.json();
@@ -139,7 +159,7 @@ export async function POST(
           err: "INVALID_REACTION",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -154,7 +174,7 @@ export async function POST(
           err: "GHAZAL_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -163,8 +183,8 @@ export async function POST(
     if (!ghazal.dislikes) ghazal.dislikes = [];
 
     // Check current reactions
-    const isLiked = ghazal.likes.includes(userId);
-    const isDisliked = ghazal.dislikes.includes(userId);
+    const isLiked = hasUser(ghazal.likes as any[], userId);
+    const isDisliked = hasUser(ghazal.dislikes as any[], userId);
 
     let action = "";
     let message = "";
@@ -172,15 +192,18 @@ export async function POST(
     if (reaction === "like") {
       if (isLiked) {
         // Remove like (undo)
-        ghazal.likes = ghazal.likes.filter((id) => id.toString() !== userId);
+        ghazal.likes = withoutUser(ghazal.likes as any[], userId) as any;
         action = "unliked";
         message = "Like removed";
       } else {
         // Add like
-        ghazal.likes.push(userId);
+        (ghazal.likes as any[]).push(userId);
         // Remove dislike if exists
         if (isDisliked) {
-          ghazal.dislikes = ghazal.dislikes.filter((id) => id.toString() !== userId);
+          ghazal.dislikes = withoutUser(
+            ghazal.dislikes as any[],
+            userId,
+          ) as any;
         }
         action = "liked";
         message = "Ghazal liked";
@@ -188,15 +211,15 @@ export async function POST(
     } else if (reaction === "dislike") {
       if (isDisliked) {
         // Remove dislike (undo)
-        ghazal.dislikes = ghazal.dislikes.filter((id) => id.toString() !== userId);
+        ghazal.dislikes = withoutUser(ghazal.dislikes as any[], userId) as any;
         action = "undisliked";
         message = "Dislike removed";
       } else {
         // Add dislike
-        ghazal.dislikes.push(userId);
+        (ghazal.dislikes as any[]).push(userId);
         // Remove like if exists
         if (isLiked) {
-          ghazal.likes = ghazal.likes.filter((id) => id.toString() !== userId);
+          ghazal.likes = withoutUser(ghazal.likes as any[], userId) as any;
         }
         action = "disliked";
         message = "Ghazal disliked";
@@ -214,14 +237,14 @@ export async function POST(
           reaction,
           likesCount: ghazal.likes.length,
           dislikesCount: ghazal.dislikes.length,
-          isLiked: ghazal.likes.includes(userId),
-          isDisliked: ghazal.dislikes.includes(userId),
+          isLiked: hasUser(ghazal.likes as any[], userId),
+          isDisliked: hasUser(ghazal.dislikes as any[], userId),
           userId,
         },
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Like/Dislike Error:", error);
@@ -233,7 +256,7 @@ export async function POST(
         err: "REACTION_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -241,7 +264,7 @@ export async function POST(
 // DELETE - Remove Reaction (Unlike/Undislike)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -259,7 +282,7 @@ export async function DELETE(
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -275,11 +298,11 @@ export async function DELETE(
           err: "INVALID_TOKEN",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
-    const userId = decoded._id;
+    const userId = String(decoded._id);
 
     const ghazal = await GhazalModel.findOne({ slug });
 
@@ -292,13 +315,13 @@ export async function DELETE(
           err: "GHAZAL_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
     // Check if user has any reaction
-    const isLiked = ghazal.likes?.includes(userId) || false;
-    const isDisliked = ghazal.dislikes?.includes(userId) || false;
+    const isLiked = hasUser(ghazal.likes as any[], userId);
+    const isDisliked = hasUser(ghazal.dislikes as any[], userId);
 
     if (!isLiked && !isDisliked) {
       return NextResponse.json(
@@ -309,16 +332,16 @@ export async function DELETE(
           err: "NO_REACTION",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
     // Remove both like and dislike
     if (isLiked) {
-      ghazal.likes = ghazal.likes.filter((id) => id.toString() !== userId);
+      ghazal.likes = withoutUser(ghazal.likes as any[], userId) as any;
     }
     if (isDisliked) {
-      ghazal.dislikes = ghazal.dislikes.filter((id) => id.toString() !== userId);
+      ghazal.dislikes = withoutUser(ghazal.dislikes as any[], userId) as any;
     }
 
     await ghazal.save();
@@ -337,7 +360,7 @@ export async function DELETE(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Remove Reaction Error:", error);
@@ -349,7 +372,7 @@ export async function DELETE(
         err: "DELETE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

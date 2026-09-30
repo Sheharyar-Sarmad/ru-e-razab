@@ -104,25 +104,22 @@ export default function KalamShareMenu({ title, text, url }: Props) {
     }
   };
 
-  const nativeShare = async () => {
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title, text, url });
-      } catch {
+  const nativeShare = () => {
+    if (typeof navigator !== "undefined" && "share" in navigator) {
+      navigator.share({ title, text, url }).catch(() => {
         /* user cancelled */
-      }
+      });
     } else {
       setOpen((o) => !o);
     }
   };
-
   return (
     <div ref={ref} className="relative">
       <motion.button
         type="button"
         whileHover={{ scale: 1.04 }}
         whileTap={{ scale: 0.96 }}
-        onClick={() => (navigator.share ? nativeShare() : setOpen((o) => !o))}
+        onClick={nativeShare}
         aria-label="Share"
         aria-expanded={open}
         className="flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-outfit font-semibold shadow-sm transition-all"

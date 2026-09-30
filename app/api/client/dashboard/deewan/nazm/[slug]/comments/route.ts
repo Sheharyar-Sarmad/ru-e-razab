@@ -9,7 +9,7 @@ import UserAccountModel from "@/models/auth/user.account.model";
 // GET - Get All Comments with Status
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -28,7 +28,7 @@ export async function GET(
     if (userToken) {
       try {
         const decoded = JSON.parse(
-          Buffer.from(userToken.split(".")[1], "base64").toString()
+          Buffer.from(userToken.split(".")[1], "base64").toString(),
         );
         userId = decoded._id;
       } catch {
@@ -36,9 +36,7 @@ export async function GET(
       }
     }
 
-    const nazm = await NazmModel.findOne({ slug })
-      .select("comments")
-      .lean();
+    const nazm = await NazmModel.findOne({ slug }).select("comments").lean();
 
     if (!nazm) {
       return NextResponse.json(
@@ -49,7 +47,7 @@ export async function GET(
           err: "NAZM_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -57,16 +55,16 @@ export async function GET(
 
     // Manual population: Get user data for all comments
     let commentsWithUser = [];
-    
+
     if (allComments.length > 0) {
-      const userIds = [...new Set(
-        allComments
-          .map((c: any) => c.user?.toString())
-          .filter(Boolean)
-      )];
+      const userIds = [
+        ...new Set(
+          allComments.map((c: any) => c.user?.toString()).filter(Boolean),
+        ),
+      ];
 
       const users = await UserAccountModel.find({
-        _id: { $in: userIds }
+        _id: { $in: userIds },
       })
         .select("firstname lastname email accountname profileImage")
         .lean();
@@ -87,7 +85,7 @@ export async function GET(
     const total = commentsWithUser.length;
     const paginatedComments = commentsWithUser.slice(skip, skip + limit);
 
-    const hasUserCommented = userId 
+    const hasUserCommented = userId
       ? allComments.some((c: any) => c.user?.toString() === userId)
       : false;
 
@@ -115,7 +113,7 @@ export async function GET(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Get Nazm Comments Error:", error);
@@ -127,7 +125,7 @@ export async function GET(
         err: "FETCH_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -135,7 +133,7 @@ export async function GET(
 // POST - Add Comment
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -149,7 +147,7 @@ export async function POST(
     if (userToken) {
       try {
         const decoded = JSON.parse(
-          Buffer.from(userToken.split(".")[1], "base64").toString()
+          Buffer.from(userToken.split(".")[1], "base64").toString(),
         );
         userId = decoded._id;
       } catch {
@@ -161,12 +159,13 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message: "Authentication required to comment (تبصرہ کرنے کے لیے لاگ ان ضروری ہے)",
+          message:
+            "Authentication required to comment (تبصرہ کرنے کے لیے لاگ ان ضروری ہے)",
           data: null,
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -182,7 +181,7 @@ export async function POST(
           err: "COMMENT_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -190,12 +189,13 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message: "Comment cannot exceed 500 characters (تبصرہ 500 حروف سے زیادہ نہیں ہو سکتا)",
+          message:
+            "Comment cannot exceed 500 characters (تبصرہ 500 حروف سے زیادہ نہیں ہو سکتا)",
           data: null,
           err: "COMMENT_TOO_LONG",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -210,7 +210,7 @@ export async function POST(
           err: "NAZM_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -253,7 +253,7 @@ export async function POST(
         err: null,
         status: HTTP_STATUS.CREATED,
       },
-      { status: HTTP_STATUS.CREATED }
+      { status: HTTP_STATUS.CREATED },
     );
   } catch (error) {
     console.error("Add Nazm Comment Error:", error);
@@ -265,7 +265,7 @@ export async function POST(
         err: "COMMENT_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -273,7 +273,7 @@ export async function POST(
 // DELETE - Delete Comment
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -292,7 +292,7 @@ export async function DELETE(
           err: "COMMENT_ID_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -304,7 +304,7 @@ export async function DELETE(
     if (userToken) {
       try {
         decoded = JSON.parse(
-          Buffer.from(userToken.split(".")[1], "base64").toString()
+          Buffer.from(userToken.split(".")[1], "base64").toString(),
         );
         userId = decoded._id;
       } catch {
@@ -321,7 +321,7 @@ export async function DELETE(
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -336,12 +336,12 @@ export async function DELETE(
           err: "NAZM_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
     const commentIndex = nazm.comments.findIndex(
-      (c) => c._id.toString() === commentId
+      (c: { _id?: any }) => c._id?.toString() === commentId,
     );
 
     if (commentIndex === -1) {
@@ -353,7 +353,7 @@ export async function DELETE(
           err: "COMMENT_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -365,12 +365,13 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          message: "You can only delete your own comments (آپ صرف اپنے تبصرے حذف کر سکتے ہیں)",
+          message:
+            "You can only delete your own comments (آپ صرف اپنے تبصرے حذف کر سکتے ہیں)",
           data: null,
           err: "FORBIDDEN",
           status: HTTP_STATUS.FORBIDDEN,
         },
-        { status: HTTP_STATUS.FORBIDDEN }
+        { status: HTTP_STATUS.FORBIDDEN },
       );
     }
 
@@ -378,7 +379,7 @@ export async function DELETE(
     await nazm.save();
 
     const hasUserCommented = nazm.comments.some(
-      (c) => c.user.toString() === userId
+      (c: { user?: any }) => c.user?.toString() === userId,
     );
 
     return NextResponse.json(
@@ -397,7 +398,7 @@ export async function DELETE(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Delete Nazm Comment Error:", error);
@@ -409,7 +410,7 @@ export async function DELETE(
         err: "DELETE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

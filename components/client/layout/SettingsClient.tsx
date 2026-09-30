@@ -79,10 +79,8 @@ function clearCachedUser() {
 
 function isUnauthorized(errOrData: any): boolean {
   if (!errOrData) return false;
-  const status =
-    errOrData?.response?.status ?? errOrData?.status;
-  const code =
-    errOrData?.response?.data?.err ?? errOrData?.err;
+  const status = errOrData?.response?.status ?? errOrData?.status;
+  const code = errOrData?.response?.data?.err ?? errOrData?.err;
   return status === 401 || code === "UNAUTHORIZED";
 }
 
@@ -155,22 +153,13 @@ export default function SettingsClient() {
           return;
         }
 
-        // 200 OK but flagged unauthenticated
-        if (isUnauthorized(res.data)) {
-          redirectHome();
-          return;
-        }
-
-        // Unexpected shape → treat as failure
+        // 200 OK but flagged unauthenticated, or unexpected shape:
+        // both are treated as failure
         redirectHome();
       } catch (err) {
         if (cancelled) return;
 
         // Any error — unauthorized, network, timeout — redirect silently
-        if (isUnauthorized(err)) {
-          redirectHome();
-          return;
-        }
         redirectHome();
       }
     })();
@@ -259,7 +248,8 @@ export default function SettingsClient() {
       </div>
 
       <div className="pointer-events-none fixed inset-0 z-[1]">
-        <ThreeBackground opacity={1} particleCount={200} zCamera={12} />
+        {/* ThreeBackground only accepts: className, particleColor, density */}
+        <ThreeBackground density={200} />
       </div>
     </>
   );
@@ -481,7 +471,10 @@ export default function SettingsClient() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              transition={{
+                duration: 0.3,
+                ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+              }}
             >
               {activeTab === "profile" && (
                 <ProfileTab

@@ -8,15 +8,18 @@ import cloudinary from "@/config/cloudinary.config";
 // Helper: Delete file from Cloudinary with proper resource type
 const deleteFromCloudinary = async (
   publicId: string,
-  resourceType: 'image' | 'video' | 'raw' = 'image'
+  resourceType: "image" | "video" | "raw" = "image",
 ): Promise<boolean> => {
   try {
-    const result = await cloudinary.uploader.destroy(publicId, { 
-      resource_type: resourceType 
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
     });
     return result.result === "ok";
   } catch (error) {
-    console.error(`Cloudinary delete error for ${publicId} (${resourceType}):`, error);
+    console.error(
+      `Cloudinary delete error for ${publicId} (${resourceType}):`,
+      error,
+    );
     return false;
   }
 };
@@ -28,7 +31,7 @@ const extractPublicId = (url: string): string | null => {
     const parts = url.split("/");
     const uploadIndex = parts.indexOf("upload");
     if (uploadIndex === -1) return null;
-    
+
     // Get everything after the version number
     const publicIdParts = parts.slice(uploadIndex + 2);
     const publicId = publicIdParts.join("/").split(".")[0]; // Remove file extension
@@ -42,7 +45,7 @@ const extractPublicId = (url: string): string | null => {
 // DELETE - Delete Ghazal by Slug (Hazf - حذف)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   const startTime = performance.now();
 
@@ -62,13 +65,13 @@ export async function DELETE(
           err: "SLUG_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
     // STEP 1: Find ghazal to get all media & cover image
     const ghazal = await GhazalModel.findOne({ slug });
-    
+
     if (!ghazal) {
       return NextResponse.json(
         {
@@ -78,7 +81,7 @@ export async function DELETE(
           err: "GHAZAL_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -92,8 +95,10 @@ export async function DELETE(
       const publicId = extractPublicId(ghazal.coverImage);
       if (publicId) {
         try {
-          coverImageDeleted = await deleteFromCloudinary(publicId, 'image');
-          console.log(`📸 Cover image ${coverImageDeleted ? '✅' : '❌'} deleted: ${publicId}`);
+          coverImageDeleted = await deleteFromCloudinary(publicId, "image");
+          console.log(
+            `📸 Cover image ${coverImageDeleted ? "✅" : "❌"} deleted: ${publicId}`,
+          );
         } catch (error) {
           console.error("Failed to delete cover image:", error);
         }
@@ -101,19 +106,22 @@ export async function DELETE(
     }
 
     // 2b. Delete all Media Files (Video, Audio, Images, Documents)
-    const mediaDeletionPromises = ghazal.media.map(async (mediaItem) => {
+    const mediaDeletionPromises = ghazal.media.map(async (mediaItem: any) => {
       if (mediaItem.publicId) {
         // Map your internal media types to Cloudinary resource types
-        let resourceType: 'image' | 'video' | 'raw' = 'image';
-        
-        if (mediaItem.type === 'video' || mediaItem.type === 'audio') {
-          resourceType = 'video'; // Cloudinary treats audio as video resource
-        } else if (mediaItem.type === 'document') {
-          resourceType = 'raw';
+        let resourceType: "image" | "video" | "raw" = "image";
+
+        if (mediaItem.type === "video" || mediaItem.type === "audio") {
+          resourceType = "video"; // Cloudinary treats audio as video resource
+        } else if (mediaItem.type === "document") {
+          resourceType = "raw";
         } // else it stays 'image'
 
         try {
-          const deleted = await deleteFromCloudinary(mediaItem.publicId, resourceType);
+          const deleted = await deleteFromCloudinary(
+            mediaItem.publicId,
+            resourceType,
+          );
           if (deleted) {
             mediaFilesDeleted++;
           } else {
@@ -163,7 +171,7 @@ export async function DELETE(
           "X-Response-Time": `${responseTime.toFixed(2)}ms`,
           "Cache-Control": "no-cache",
         },
-      }
+      },
     );
   } catch (error) {
     console.error("Delete Ghazal Error (Hazf):", error);
@@ -175,7 +183,7 @@ export async function DELETE(
         err: "DELETE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

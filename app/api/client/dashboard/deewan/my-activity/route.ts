@@ -78,10 +78,10 @@ function getUserIdFromRequest(request: NextRequest): string | null {
   if (!userCookie) return null;
 
   try {
-    const decoded = jwt.verify(
-      userCookie,
-      EnvSecrets.jwtSecret as string
-    ) as { sub?: string; _id?: string };
+    const decoded = jwt.verify(userCookie, EnvSecrets.jwtSecret as string) as {
+      sub?: string;
+      _id?: string;
+    };
 
     const id = decoded?.sub || decoded?._id;
     return id ? String(id) : null;
@@ -101,7 +101,7 @@ interface LRUEntry<T> {
   userId: string;
 }
 
-class LRUCache<T extends { userId?: string }> {
+class LRUCache<T> {
   private cache = new Map<string, LRUEntry<T>>();
   private maxSize: number;
 
@@ -131,7 +131,7 @@ class LRUCache<T extends { userId?: string }> {
     value: T,
     softTtlMs: number,
     hardTtlMs: number,
-    userId: string
+    userId: string,
   ) {
     if (this.cache.size >= this.maxSize) {
       const firstKey = this.cache.keys().next().value;
@@ -162,7 +162,7 @@ class LRUCache<T extends { userId?: string }> {
   }
 }
 
-const memoryCache = new LRUCache<ActivityPayload & { userId: string }>(1000);
+const memoryCache = new LRUCache<ActivityPayload>(1000);
 
 /* =========================================================
    PRECOMPILED PIPELINE CACHE
@@ -177,7 +177,7 @@ function pipelineCacheKey(userId: string, activity: ActivityMode): string {
 
 function buildPipeline(
   userId: Types.ObjectId,
-  activity: ActivityMode
+  activity: ActivityMode,
 ): Record<string, unknown>[] {
   const key = pipelineCacheKey(String(userId), activity);
   const cached = pipelineCache.get(key);
@@ -196,8 +196,8 @@ function buildPipeline(
     matchConditions.length === 0
       ? { _id: null }
       : matchConditions.length === 1
-      ? matchConditions[0]
-      : { $or: matchConditions };
+        ? matchConditions[0]
+        : { $or: matchConditions };
 
   const pipeline = [
     { $match: match },
@@ -252,7 +252,7 @@ function extractFirstLine(doc: any, type: KalamType): string {
     if (type === "nazm")
       return doc?.content?.[0]?.shairs?.[0]?.lines?.[0] ?? "";
     if (type === "shair")
-      return Array.isArray(doc?.content) ? doc.content[0] ?? "" : "";
+      return Array.isArray(doc?.content) ? (doc.content[0] ?? "") : "";
     return doc?.content?.[0]?.lines?.[0] ?? "";
   } catch {
     return "";
@@ -268,7 +268,7 @@ async function fetchActivityForCollection(
   type: KalamType,
   userId: Types.ObjectId,
   activity: ActivityMode,
-  perCollectionLimit: number
+  perCollectionLimit: number,
 ): Promise<ActivityHit[]> {
   const pipeline = buildPipeline(userId, activity);
 
@@ -282,7 +282,7 @@ async function fetchActivityForCollection(
         _id: String(c._id),
         content: c.content,
         createdAt: new Date(c.createdAt).toISOString(),
-      })
+      }),
     );
 
     const lastCommentAt = userComments.length
@@ -324,7 +324,7 @@ async function performActivityFetch(
   activity: ActivityMode,
   typeParam: KalamType | null,
   page: number,
-  limit: number
+  limit: number,
 ): Promise<ActivityPayload> {
   const allTargets = [
     { model: GhazalModel, type: "ghazal" as const },
@@ -346,9 +346,9 @@ async function performActivityFetch(
         t.type,
         userId,
         activity,
-        perCollectionLimit
-      )
-    )
+        perCollectionLimit,
+      ),
+    ),
   );
 
   const merged: ActivityHit[] = results
@@ -356,7 +356,7 @@ async function performActivityFetch(
     .sort(
       (a, b) =>
         new Date(b.userActivity.lastActivityAt).getTime() -
-        new Date(a.userActivity.lastActivityAt).getTime()
+        new Date(a.userActivity.lastActivityAt).getTime(),
     );
 
   const byTypeCounts: Record<KalamType, number> = {
@@ -408,7 +408,7 @@ function buildCacheKey(
   activity: ActivityMode,
   typeParam: KalamType | null,
   page: number,
-  limit: number
+  limit: number,
 ): string {
   const type = typeParam || "all";
   return `act:${userId}:${activity}:${type}:p${page}:l${limit}`;
@@ -424,7 +424,7 @@ const inflight = new Map<string, Promise<ActivityPayload>>();
 async function getOrFetch(
   cacheKey: string,
   userId: string,
-  fetcher: () => Promise<ActivityPayload>
+  fetcher: () => Promise<ActivityPayload>,
 ): Promise<{
   payload: ActivityPayload;
   source: "lru-fresh" | "lru-stale" | "inflight" | "db";
@@ -464,19 +464,23 @@ async function getOrFetch(
 function revalidateInBackground(
   cacheKey: string,
   userId: string,
-  fetcher: () => Promise<ActivityPayload>
+  fetcher: () => Promise<ActivityPayload>,
 ) {
   if (inflight.has(cacheKey)) return;
   const promise = (async () => {
     try {
       const fresh = await fetcher();
       memoryCache.set(cacheKey, fresh, TTL.SOFT_MS, TTL.HARD_MS, userId);
-    } catch {
-      /* silent */
+      return fresh;
     } finally {
       inflight.delete(cacheKey);
     }
   })();
+  // Swallow errors so a failed background refresh never causes an
+  // unhandled rejection; the stale entry stays until it hard-expires.
+  promise.catch(() => {
+    /* silent */
+  });
   inflight.set(cacheKey, promise);
 }
 
@@ -513,7 +517,7 @@ export async function GET(req: NextRequest) {
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -523,7 +527,7 @@ export async function GET(req: NextRequest) {
     const activityParam =
       (searchParams.get("activity") as ActivityMode | null) || "both";
     const activity: ActivityMode = ["likes", "comments", "both"].includes(
-      activityParam
+      activityParam,
     )
       ? activityParam
       : "both";
@@ -533,16 +537,10 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(
       50,
-      Math.max(1, parseInt(searchParams.get("limit") || "10", 10))
+      Math.max(1, parseInt(searchParams.get("limit") || "10", 10)),
     );
 
-    const cacheKey = buildCacheKey(
-      userIdStr,
-      activity,
-      typeParam,
-      page,
-      limit
-    );
+    const cacheKey = buildCacheKey(userIdStr, activity, typeParam, page, limit);
 
     /* ---------- FAST PATH ---------- */
     const peek = memoryCache.peek(cacheKey);
@@ -574,7 +572,7 @@ export async function GET(req: NextRequest) {
               "x-cache-hit": "1",
               "x-response-time": `${elapsed}ms`,
             },
-          }
+          },
         );
       }
 
@@ -584,8 +582,8 @@ export async function GET(req: NextRequest) {
           activity,
           typeParam,
           page,
-          limit
-        )
+          limit,
+        ),
       );
 
       const elapsed = Date.now() - startTime;
@@ -605,14 +603,13 @@ export async function GET(req: NextRequest) {
         {
           status: HTTP_STATUS.OK,
           headers: {
-            "Cache-Control":
-              "private, max-age=30, stale-while-revalidate=120",
+            "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
             Vary: "Cookie, Authorization",
             "x-cache-source": "lru-stale",
             "x-cache-hit": "1",
             "x-response-time": `${elapsed}ms`,
           },
-        }
+        },
       );
     }
 
@@ -627,7 +624,7 @@ export async function GET(req: NextRequest) {
     const { payload, source, hit } = await getOrFetch(
       cacheKey,
       userIdStr,
-      fetcher
+      fetcher,
     );
 
     const elapsed = Date.now() - startTime;
@@ -655,7 +652,7 @@ export async function GET(req: NextRequest) {
           "x-cache-hit": hit ? "1" : "0",
           "x-response-time": `${elapsed}ms`,
         },
-      }
+      },
     );
   } catch (error) {
     console.error("My Activity Error:", error);
@@ -667,7 +664,7 @@ export async function GET(req: NextRequest) {
         err: "ACTIVITY_FETCH_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -683,7 +680,7 @@ export async function POST(req: NextRequest) {
   if (action !== "purge") {
     return NextResponse.json(
       { success: false, message: "Unknown action", err: "BAD_ACTION" },
-      { status: HTTP_STATUS.BAD_REQUEST }
+      { status: HTTP_STATUS.BAD_REQUEST },
     );
   }
 
@@ -702,7 +699,7 @@ export async function POST(req: NextRequest) {
           err: null,
           status: HTTP_STATUS.OK,
         },
-        { status: HTTP_STATUS.OK }
+        { status: HTTP_STATUS.OK },
       );
     }
 
@@ -716,7 +713,7 @@ export async function POST(req: NextRequest) {
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -730,7 +727,7 @@ export async function POST(req: NextRequest) {
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch {
     return NextResponse.json(
@@ -741,7 +738,7 @@ export async function POST(req: NextRequest) {
         err: "PURGE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

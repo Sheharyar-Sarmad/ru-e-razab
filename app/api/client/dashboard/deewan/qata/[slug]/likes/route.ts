@@ -9,7 +9,7 @@ import jwt from "jsonwebtoken";
 // GET - Get Like Status & Count
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -22,7 +22,10 @@ export async function GET(
 
     if (userToken) {
       try {
-        const decoded = jwt.verify(userToken, EnvSecrets.jwtSecret as string) as any;
+        const decoded = jwt.verify(
+          userToken,
+          EnvSecrets.jwtSecret as string,
+        ) as any;
         userId = decoded._id;
       } catch {
         // Token invalid, continue as guest
@@ -42,14 +45,16 @@ export async function GET(
           err: "QATA_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
     const likesCount = qata.likes?.length || 0;
     const dislikesCount = qata.dislikes?.length || 0;
     const isLiked = userId ? qata.likes?.includes(userId) || false : false;
-    const isDisliked = userId ? qata.dislikes?.includes(userId) || false : false;
+    const isDisliked = userId
+      ? qata.dislikes?.includes(userId) || false
+      : false;
 
     return NextResponse.json(
       {
@@ -66,7 +71,7 @@ export async function GET(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Likes Error:", error);
@@ -78,7 +83,7 @@ export async function GET(
         err: "FETCH_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -86,7 +91,7 @@ export async function GET(
 // POST - Like a Qata
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -104,7 +109,7 @@ export async function POST(
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -120,7 +125,7 @@ export async function POST(
           err: "INVALID_TOKEN",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -139,7 +144,7 @@ export async function POST(
           err: "INVALID_REACTION",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -154,7 +159,7 @@ export async function POST(
           err: "QATA_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -168,40 +173,42 @@ export async function POST(
 
     let action = "";
     let message = "";
-
     if (reaction === "like") {
-      if (isLiked) {
-        // Remove like (undo)
-        qata.likes = qata.likes.filter((id) => id.toString() !== userId);
-        action = "unliked";
-        message = "Like removed";
-      } else {
-        // Add like
-        qata.likes.push(userId);
-        // Remove dislike if exists
-        if (isDisliked) {
-          qata.dislikes = qata.dislikes.filter((id) => id.toString() !== userId);
-        }
-        action = "liked";
-        message = "Qata liked";
-      }
-    } else if (reaction === "dislike") {
-      if (isDisliked) {
-        // Remove dislike (undo)
-        qata.dislikes = qata.dislikes.filter((id) => id.toString() !== userId);
-        action = "undisliked";
-        message = "Dislike removed";
-      } else {
-        // Add dislike
-        qata.dislikes.push(userId);
-        // Remove like if exists
-        if (isLiked) {
-          qata.likes = qata.likes.filter((id) => id.toString() !== userId);
-        }
-        action = "disliked";
-        message = "Qata disliked";
-      }
+  if (isLiked) {
+    // Remove like (undo)
+    qata.likes = qata.likes.filter((id: any) => id.toString() !== userId);
+    action = "unliked";
+    message = "Like removed";
+  } else {
+    // Add like
+    qata.likes.push(userId as any);
+    // Remove dislike if exists
+    if (isDisliked) {
+      qata.dislikes = qata.dislikes.filter(
+        (id: any) => id.toString() !== userId,
+      );
     }
+    action = "liked";
+    message = "Qata liked";
+  }
+} else if (reaction === "dislike") {
+  if (isDisliked) {
+    // Remove dislike (undo)
+    qata.dislikes = qata.dislikes.filter((id: any) => id.toString() !== userId);
+    action = "undisliked";
+    message = "Dislike removed";
+  } else {
+    // Add dislike
+    qata.dislikes.push(userId as any);
+    // Remove like if exists
+    if (isLiked) {
+      qata.likes = qata.likes.filter((id: any) => id.toString() !== userId);
+    }
+    action = "disliked";
+    message = "Qata disliked";
+  }
+}
+
 
     await qata.save();
 
@@ -221,7 +228,7 @@ export async function POST(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Like/Dislike Error:", error);
@@ -233,7 +240,7 @@ export async function POST(
         err: "REACTION_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }
@@ -241,7 +248,7 @@ export async function POST(
 // DELETE - Remove Reaction (Unlike/Undislike)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     await ConnectDB(EnvSecrets.mongoUri as string);
@@ -259,7 +266,7 @@ export async function DELETE(
           err: "UNAUTHORIZED",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -275,7 +282,7 @@ export async function DELETE(
           err: "INVALID_TOKEN",
           status: HTTP_STATUS.UNAUTHORIZED,
         },
-        { status: HTTP_STATUS.UNAUTHORIZED }
+        { status: HTTP_STATUS.UNAUTHORIZED },
       );
     }
 
@@ -292,7 +299,7 @@ export async function DELETE(
           err: "QATA_NOT_FOUND",
           status: HTTP_STATUS.NOT_FOUND,
         },
-        { status: HTTP_STATUS.NOT_FOUND }
+        { status: HTTP_STATUS.NOT_FOUND },
       );
     }
 
@@ -309,17 +316,18 @@ export async function DELETE(
           err: "NO_REACTION",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
-    // Remove both like and dislike
-    if (isLiked) {
-      qata.likes = qata.likes.filter((id) => id.toString() !== userId);
-    }
-    if (isDisliked) {
-      qata.dislikes = qata.dislikes.filter((id) => id.toString() !== userId);
-    }
+   // Remove both like and dislike
+if (isLiked) {
+  qata.likes = qata.likes.filter((id: any) => id.toString() !== userId);
+}
+if (isDisliked) {
+  qata.dislikes = qata.dislikes.filter((id: any) => id.toString() !== userId);
+}
+
 
     await qata.save();
 
@@ -337,7 +345,7 @@ export async function DELETE(
         err: null,
         status: HTTP_STATUS.OK,
       },
-      { status: HTTP_STATUS.OK }
+      { status: HTTP_STATUS.OK },
     );
   } catch (error) {
     console.error("Remove Reaction Error:", error);
@@ -349,7 +357,7 @@ export async function DELETE(
         err: "DELETE_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { motion, type Variants } from "framer-motion";
 import { User, Mail, Phone, Save, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api";
 import type { ToastKind } from "./Toast";
@@ -40,14 +46,21 @@ interface FieldErrors {
   phonenumber?: string;
 }
 
-const container = {
+const container: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
 };
 
-const item = {
+const item: Variants = {
   hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.5,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+    },
+  },
 };
 
 export default function ProfileTab({
@@ -112,7 +125,7 @@ export default function ProfileTab({
     return Object.keys(next).length === 0;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!validate()) return;
 
@@ -214,9 +227,7 @@ export default function ProfileTab({
           }}
         >
           <span className="font-outfit">{user.accountname}</span>
-          <span
-            className="ml-auto text-[10px] uppercase tracking-widest opacity-60"
-          >
+          <span className="ml-auto text-[10px] uppercase tracking-widest opacity-60">
             Immutable
           </span>
         </div>
@@ -255,12 +266,18 @@ export default function ProfileTab({
         <motion.button
           type="submit"
           disabled={saving || !dirty}
-          whileHover={{ scale: saving || !dirty ? 1 : 1.03, y: saving || !dirty ? 0 : -2 }}
+          whileHover={{
+            scale: saving || !dirty ? 1 : 1.03,
+            y: saving || !dirty ? 0 : -2,
+          }}
           whileTap={{ scale: saving || !dirty ? 1 : 0.97 }}
           className="font-outfit inline-flex h-11 items-center gap-2 rounded-xl px-6 text-sm font-semibold text-white shadow-md transition-all disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             background: `linear-gradient(135deg, ${THEME.darkOrange}, #7C2D12)`,
-            boxShadow: dirty && !saving ? `0 12px 28px -12px ${THEME.orangeGlow}90` : undefined,
+            boxShadow:
+              dirty && !saving
+                ? `0 12px 28px -12px ${THEME.orangeGlow}90`
+                : undefined,
           }}
         >
           {saving ? (
@@ -291,7 +308,7 @@ function Field({
   autoComplete,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   value: string;
   onChange: (v: string) => void;
   error?: string;
@@ -317,13 +334,16 @@ function Field({
         placeholder={placeholder}
         autoComplete={autoComplete}
         className="font-outfit h-11 w-full rounded-xl border px-3.5 text-sm outline-none transition-all focus:ring-2"
-        style={{
-          backgroundColor: "#FFFFFF",
-          borderColor: hasError ? THEME.deepRed : THEME.border,
-          color: THEME.darkText,
-          // @ts-ignore — css var
-          "--tw-ring-color": hasError ? `${THEME.deepRed}55` : `${THEME.darkOrange}55`,
-        }}
+        style={
+          {
+            backgroundColor: "#FFFFFF",
+            borderColor: hasError ? THEME.deepRed : THEME.border,
+            color: THEME.darkText,
+            "--tw-ring-color": hasError
+              ? `${THEME.deepRed}55`
+              : `${THEME.darkOrange}55`,
+          } as CSSProperties
+        }
       />
       {hasError && (
         <motion.p

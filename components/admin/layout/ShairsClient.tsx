@@ -42,7 +42,8 @@ interface ShairsClientProps {
 
 // Helpers
 const getFirstLine = (content: string[]): string => {
-  if (!content || !Array.isArray(content) || content.length === 0) return "Untitled";
+  if (!content || !Array.isArray(content) || content.length === 0)
+    return "Untitled";
   return content[0] || "Untitled";
 };
 
@@ -100,31 +101,58 @@ export default function ShairsClient({
     setSearchInput(initialSearch);
     setDebouncedSearch(initialSearch);
     setError(initialError);
-  }, [initialShairs, totalPages, totalCount, initialPage, initialSearch, initialError]);
+  }, [
+    initialShairs,
+    totalPages,
+    totalCount,
+    initialPage,
+    initialSearch,
+    initialError,
+  ]);
 
   // Delete handler
-  const handleDelete = async (slug: string) => {
-    if (!confirm("Are you sure you want to delete this Shair? This action cannot be undone.")) return;
+  const handleDelete = async (slug: string): Promise<void> => {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this Shair? This action cannot be undone.",
+      )
+    ) {
+      return;
+    }
 
-    const previousShairs = shairs;
+    const previousShairs = [...shairs];
+
+    // Optimistic UI update
     setShairs((prev) => prev.filter((s) => s.slug !== slug));
 
     try {
-      await axios.delete(`/api/admin/dashboard/hazf/shair/${slug}`, {
-        withCredentials: true,
-      });
+      await axios.delete(
+        `/api/admin/dashboard/hazf/shair/${encodeURIComponent(slug)}`,
+        {
+          withCredentials: true,
+        },
+      );
+
       toast.success("Shair deleted successfully!", {
-        style: { background: "#2B4735", color: "#FFF3EF" },
-        progressStyle: { background: "#A964FF" },
+        style: {
+          background: "#2B4735",
+          color: "#FFF3EF",
+        },
       });
+
       router.refresh();
+
       setTotalPagesState((prev) => Math.max(1, prev - 1));
       setTotalCountState((prev) => Math.max(0, prev - 1));
-    } catch (err) {
+    } catch (error: unknown) {
+      // Restore the list if deletion failed
       setShairs(previousShairs);
+
       toast.error("Failed to delete Shair.", {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
+        style: {
+          background: "#4A2B2B",
+          color: "#FFF3EF",
+        },
       });
     }
   };
@@ -162,10 +190,15 @@ export default function ShairsClient({
       {/* Header */}
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl mt-10 md:text-3xl font-bold" style={{ color: COLORS.deepForest }}>
+          <h1
+            className="text-2xl mt-10 md:text-3xl font-bold"
+            style={{ color: COLORS.deepForest }}
+          >
             Shairs (اشعار)
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage, edit, and review your shair collection</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage, edit, and review your shair collection
+          </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
@@ -181,7 +214,9 @@ export default function ShairsClient({
           <Link
             href="/admin/dashboard/jadeed-kalam/shair"
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg shadow-md hover:shadow-lg transition-all"
-            style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
+            style={{
+              background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
+            }}
           >
             <PlusCircleIcon className="w-4 h-4" />
             Add New Shair
@@ -191,7 +226,7 @@ export default function ShairsClient({
 
       {/* Total count */}
       <div className="mb-4 text-sm text-gray-400">
-        {totalCountState} {totalCountState === 1 ? 'shair' : 'shairs'} found
+        {totalCountState} {totalCountState === 1 ? "shair" : "shairs"} found
       </div>
 
       {/* Content */}
@@ -203,11 +238,15 @@ export default function ShairsClient({
         <div className="text-center py-20 bg-white rounded-2xl shadow-sm border border-gray-100">
           <div className="text-6xl mb-4">📝</div>
           <p className="text-gray-500 text-lg">No Shairs found.</p>
-          <p className="text-gray-400 text-sm mt-1">Start by adding your first shair.</p>
+          <p className="text-gray-400 text-sm mt-1">
+            Start by adding your first shair.
+          </p>
           <Link
             href="/admin/dashboard/jadeed-kalam/shair"
             className="inline-block mt-4 px-6 py-2 text-white rounded-lg shadow-md hover:shadow-lg transition"
-            style={{ background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})` }}
+            style={{
+              background: `linear-gradient(135deg, ${COLORS.burntRust}, ${COLORS.richMustard})`,
+            }}
           >
             <PlusCircleIcon className="w-4 h-4 inline mr-2" />
             Add New Shair
@@ -230,7 +269,11 @@ export default function ShairsClient({
                 >
                   <div className="relative h-40 bg-gray-100 overflow-hidden">
                     {shair.coverImage ? (
-                      <img src={shair.coverImage} alt="Cover" className="w-full h-full object-cover" />
+                      <img
+                        src={shair.coverImage}
+                        alt="Cover"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-gray-200 text-gray-400">
                         <span className="text-sm">No Image</span>
@@ -248,16 +291,22 @@ export default function ShairsClient({
                     </h3>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {categories.slice(0, 2).map((c, i) => (
-                        <span key={i} className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">
+                        <span
+                          key={i}
+                          className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full"
+                        >
                           {c}
                         </span>
                       ))}
                       {categories.length > 2 && (
-                        <span className="text-[10px] text-gray-400">+{categories.length - 2}</span>
+                        <span className="text-[10px] text-gray-400">
+                          +{categories.length - 2}
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
-                      <span className="font-medium">Takhallus:</span> {shair.takhallus || "Unknown"}
+                      <span className="font-medium">Takhallus:</span>{" "}
+                      {shair.takhallus || "Unknown"}
                     </p>
                     <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                       <EyeIcon className="w-3 h-3" /> {shair.views ?? 0} views
@@ -338,24 +387,24 @@ export default function ShairsClient({
           border-radius: 12px !important;
         }
         .custom-toast .Toastify__toast--success {
-          background: #2B4735 !important;
-          color: #FFF3EF !important;
+          background: #2b4735 !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__toast--success .Toastify__progress-bar {
-          background: #A964FF !important;
+          background: #a964ff !important;
         }
         .custom-toast .Toastify__toast--error {
-          background: #4A2B2B !important;
-          color: #FFF3EF !important;
+          background: #4a2b2b !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__toast--error .Toastify__progress-bar {
-          background: #BD4D23 !important;
+          background: #bd4d23 !important;
         }
         .custom-toast .Toastify__toast-body {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
         .custom-toast .Toastify__close-button {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
       `}</style>
     </>

@@ -71,7 +71,7 @@ function isFileAllowed(mimeType: string, size: number): { allowed: boolean; mess
     return { allowed: false, message: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` };
   }
 
-  const ALLOWED_TYPES = {
+  const ALLOWED_TYPES: Record<'image' | 'video' | 'audio' | 'document', string[]> = {
     image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/jfif', 'image/svg+xml', 'image/bmp', 'image/tiff'],
     video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/3gpp', 'video/mpeg'],
     audio: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/aac', 'audio/flac', 'audio/mp4'],
@@ -97,7 +97,8 @@ async function processFile(
   alt?: string
 ): Promise<UploadedFile> {
   const bytes = await file.arrayBuffer();
-  let buffer = Buffer.from(bytes);
+  // Explicit `Buffer` type so it can be reassigned from compressImage()
+  let buffer: Buffer = Buffer.from(bytes);
   const mimeType = file.type;
   const fileSize = file.size;
   const filename = file.name;
@@ -622,7 +623,8 @@ export async function POST(request: NextRequest) {
 
     try {
       const coverBytes = await coverImageFile.arrayBuffer();
-      let coverBuffer = Buffer.from(coverBytes);
+      // Explicit `Buffer` type so it can be reassigned from compressImage()
+      let coverBuffer: Buffer = Buffer.from(coverBytes);
 
       // Compress cover image
       const compressStart = Date.now();

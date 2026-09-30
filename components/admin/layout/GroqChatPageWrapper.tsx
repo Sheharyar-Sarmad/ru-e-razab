@@ -41,7 +41,10 @@ const QUICK_ACTIONS = [
   { label: "Anomalies", icon: ChatBubbleLeftIcon, query: "Are there any anomalous ghazals?" },
 ];
 
-marked.setOptions({ gfm: true, breaks: true, tables: true });
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
 
 // ─── Logger ─────────────────────────────────────────────────────
 const logger = {
@@ -401,7 +404,6 @@ export default function GroqChatPageWrapper() {
     if (voiceSupported === false) {
       toast.error("Voice recognition is not supported in this browser.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
       });
       return;
     }
@@ -420,7 +422,6 @@ export default function GroqChatPageWrapper() {
       if (name === "NotReadableError") msg = "Microphone in use by another app.";
       toast.error(msg, {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
       });
       setVoiceSupported(false);
       return;
@@ -465,13 +466,11 @@ export default function GroqChatPageWrapper() {
       if (event.error === "no-speech") {
         toast.info("No speech detected.", {
           style: { background: "#2B4735", color: "#FFF3EF" },
-          progressStyle: { background: "#A964FF" },
           autoClose: 2000,
         });
       } else if (event.error !== "aborted") {
         toast.error(`Voice error: ${event.error}`, {
           style: { background: "#4A2B2B", color: "#FFF3EF" },
-          progressStyle: { background: "#BD4D23" },
         });
       }
     };
@@ -485,7 +484,6 @@ export default function GroqChatPageWrapper() {
       recognition._isActive = true;
       toast.info("🎤 Listening...", {
         style: { background: "#2B4735", color: "#FFF3EF" },
-        progressStyle: { background: "#A964FF" },
         autoClose: 2000,
       });
     } catch {
@@ -519,12 +517,10 @@ export default function GroqChatPageWrapper() {
       await navigator.clipboard.writeText(text);
       toast.success("Copied!", {
         style: { background: "#2B4735", color: "#FFF3EF" },
-        progressStyle: { background: "#A964FF" },
       });
     } catch {
       toast.error("Failed to copy.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
       });
     }
   };
@@ -595,7 +591,6 @@ export default function GroqChatPageWrapper() {
       logger.error(COMPONENT, "Chat error", error);
       toast.error("Failed to get response.", {
         style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
       });
       setMessages((prev) => [
         ...prev,
@@ -639,7 +634,6 @@ export default function GroqChatPageWrapper() {
     if (!next) stopSpeaking();
     toast.info(next ? "Voice replies enabled" : "Voice replies muted", {
       style: { background: "#2B4735", color: "#FFF3EF" },
-      progressStyle: { background: "#A964FF" },
       autoClose: 1500,
     });
   };

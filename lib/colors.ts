@@ -13,4 +13,5 @@ export const COLORS = {
   yellowGold: "#ED971D",    // Yellow/Gold
   darkBlue: "#274664",      // Dark blue
   dustyRose: "#BD9C97",     // Dusty Rose / Muted Taupe
+  darkEmerald: "#064E3B"    // Emerald Green / Darkish Shade
 };

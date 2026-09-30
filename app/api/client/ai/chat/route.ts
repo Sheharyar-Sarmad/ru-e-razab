@@ -22,6 +22,12 @@ interface IncomingMessage {
   content: string;
 }
 
+/** Shape Groq's SDK expects (literal role union, not plain string). */
+type GroqChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
 interface ChatRequestBody {
   message: string;
   messages?: IncomingMessage[];
@@ -74,7 +80,7 @@ const MAX_OUTPUT_TOKENS = 1024;
    CACHE
 ========================================================= */
 
-const chatCache = new Map<string, { data: any; timestamp: number }>();
+const chatCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE_ENTRIES = 500;
 
@@ -90,7 +96,7 @@ function buildCacheKey(message: string, messages: IncomingMessage[], voiceMode: 
 
 function pruneCache() {
   if (chatCache.size <= MAX_CACHE_ENTRIES) return;
-  const oldestFirst = [...chatCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+  const oldestFirst = Array.from(chatCache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp);
   const toRemove = oldestFirst.slice(0, chatCache.size - MAX_CACHE_ENTRIES);
   toRemove.forEach(([key]) => chatCache.delete(key));
 }
@@ -148,9 +154,9 @@ class SlidingWindowLimiter {
   private sweep(now: number) {
     if (now - this.lastSweep < MINUTE) return;
     this.lastSweep = now;
-    for (const [key, arr] of this.hits) {
+    this.hits.forEach((arr, key) => {
       if (arr.length === 0 || now - arr[arr.length - 1] >= this.windowMs) this.hits.delete(key);
-    }
+    });
   }
 }
 
@@ -319,10 +325,12 @@ function sanitizeHistory(raw: unknown): IncomingMessage[] {
         m.content.trim().length > 0
     )
     .slice(-MAX_HISTORY_MESSAGES)
-    .map((m: any) => ({
-      role: m.role as ChatRole,
-      content: (m.content as string).slice(0, MAX_HISTORY_CHARS),
-    }));
+    .map(
+      (m: any): IncomingMessage => ({
+        role: m.role as ChatRole,
+        content: (m.content as string).slice(0, MAX_HISTORY_CHARS),
+      })
+    );
 }
 
 /** Reads Retry-After (seconds) from a Groq SDK error, whether headers is a Headers object or a plain object. */
@@ -425,11 +433,13 @@ async function getPoetryCollection(query: string): Promise<string> {
     NazmModel.distinct("takhallus"),
   ]);
 
-  const allPoets = [...new Set([...ghazalPoets, ...shairPoets, ...qataPoets, ...nazmPoets])];
+  const allPoets: string[] = Array.from(
+    new Set<string>([...ghazalPoets, ...shairPoets, ...qataPoets, ...nazmPoets])
+  );
 
   if (allPoets.length > 0) {
     collection += "\n👤 ALL POETS IN MY COLLECTION:\n";
-    collection += allPoets.map((p: any) => `- ${p}`).join("\n");
+    collection += allPoets.map((p) => `- ${p}`).join("\n");
     collection += "\n\n";
   }
 
@@ -692,19 +702,15 @@ The user is listening to your reply out loud through text-to-speech.
     }
 
     // PREPARE MESSAGES
-    const chatMessages = [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      ...history.map((msg) => ({
-        role: msg.role === "user" ? "user" : "assistant",
-        content: msg.content,
-      })),
-      {
-        role: "user",
-        content: trimmedMessage,
-      },
+    const chatMessages: GroqChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...history.map(
+        (msg): GroqChatMessage => ({
+          role: msg.role, // already "user" | "assistant"
+          content: msg.content,
+        })
+      ),
+      { role: "user", content: trimmedMessage },
     ];
 
     // CALL GROQ API

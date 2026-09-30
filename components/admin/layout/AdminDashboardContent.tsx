@@ -273,7 +273,6 @@ const StatCard = ({
 
   return (
     <motion.div
-      variants={fadeUp}
       custom={index}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
@@ -401,7 +400,6 @@ const RecentItem = ({
 
   return (
     <motion.div
-      variants={fadeUp}
       custom={index}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
@@ -729,7 +727,6 @@ export default function DashboardContent() {
           ].map((item, idx) => (
             <motion.div
               key={item.label}
-              variants={fadeUp}
               custom={idx}
               whileHover={{ scale: 1.06, y: -6, rotate: idx % 2 === 0 ? -1 : 1 }}
               whileTap={{ scale: 0.97 }}
@@ -781,7 +778,6 @@ export default function DashboardContent() {
           
           {/* 1. Poetry Breakdown Pie Chart */}
           <motion.div
-            variants={scrollRevealLeft}
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
@@ -828,7 +824,6 @@ export default function DashboardContent() {
 
           {/* 2. Category Distribution Bar Chart */}
           <motion.div
-            variants={scrollRevealRight}
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
@@ -870,7 +865,6 @@ export default function DashboardContent() {
 
           {/* 3. Weekly Activity Bar Chart */}
           <motion.div
-            variants={scrollRevealLeft}
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
@@ -925,7 +919,6 @@ export default function DashboardContent() {
 
           {/* 4. User Distribution Chart (NEW) */}
           <motion.div
-            variants={scrollRevealRight}
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
@@ -978,7 +971,6 @@ export default function DashboardContent() {
 
         {/* Recent Additions */}
         <motion.div
-          variants={scrollReveal}
           initial="hidden"
           whileInView="show"
           viewport={viewportOnce}
@@ -1067,7 +1059,6 @@ export default function DashboardContent() {
           ].map((item, idx) => (
             <motion.div
               key={item.label}
-              variants={fadeUp}
               custom={idx}
               whileHover={{ scale: 1.04, y: -4 }}
               className="rounded-xl p-4 shadow-md border border-gray-100/80 text-center hover:shadow-xl transition-shadow cursor-pointer"

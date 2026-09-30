@@ -10,10 +10,6 @@ import "react-toastify/dist/ReactToastify.css";
 import {
   MagnifyingGlassIcon,
   TrashIcon,
-  UserIcon,
-  EnvelopeIcon,
-  PhoneIcon,
-  CalendarIcon,
 } from "@heroicons/react/24/outline";
 import { COLORS } from "@/lib/colors";
 
@@ -39,7 +35,7 @@ interface UsersClientProps {
   error?: string | null;
 }
 
-const formatDate = (date: string) => {
+const formatDate = (date: string): string => {
   try {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -66,36 +62,86 @@ export default function UsersClient({
   const router = useRouter();
   const pathname = usePathname();
 
-  const [searchInput, setSearchInput] = useState(initialSearch);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
-  const [sortBy, setSortBy] = useState(initialSortBy);
-  const [sortOrder, setSortOrder] = useState(initialSortOrder);
-  const [currentPage, setCurrentPage] = useState(initialPage);
-  const [users, setUsers] = useState(initialUsers);
-  const [totalPagesState, setTotalPagesState] = useState(totalPages);
-  const [totalCountState, setTotalCountState] = useState(totalCount);
-  const [error, setError] = useState(initialError);
-  const [isLoading, setIsLoading] = useState(false);
+  const [searchInput, setSearchInput] = useState<string>(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] =
+    useState<string>(initialSearch);
 
-  // ─── Debounce search ──────────────────────────────────────────
+  const [sortBy, setSortBy] = useState<string>(initialSortBy);
+  const [sortOrder, setSortOrder] = useState<string>(initialSortOrder);
+
+  const [currentPage, setCurrentPage] = useState<number>(initialPage);
+
+  const [users, setUsers] = useState<User[]>(initialUsers);
+
+  const [totalPagesState, setTotalPagesState] =
+    useState<number>(totalPages);
+
+  const [totalCountState, setTotalCountState] =
+    useState<number>(totalCount);
+
+  const [error, setError] = useState<string | null | undefined>(
+    initialError,
+  );
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  /* =========================================================
+     DEBOUNCE SEARCH
+  ========================================================= */
+
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchInput), 500);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [searchInput]);
 
-  // ─── Update URL and fetch on filter change ──────────────────
+  /* =========================================================
+     UPDATE URL ON FILTER CHANGE
+  ========================================================= */
+
   useEffect(() => {
     const params = new URLSearchParams();
-    if (currentPage > 1) params.set("page", String(currentPage));
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    if (sortBy !== "createdAt") params.set("sortBy", sortBy);
-    if (sortOrder !== "desc") params.set("sortOrder", sortOrder);
 
-    const url = `${pathname}${params.toString() ? `?${params.toString()}` : ""}`;
-    router.push(url, { scroll: false });
-  }, [currentPage, debouncedSearch, sortBy, sortOrder, pathname, router]);
+    if (currentPage > 1) {
+      params.set("page", String(currentPage));
+    }
 
-  // ─── Sync with server props ──────────────────────────────────
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch);
+    }
+
+    if (sortBy !== "createdAt") {
+      params.set("sortBy", sortBy);
+    }
+
+    if (sortOrder !== "desc") {
+      params.set("sortOrder", sortOrder);
+    }
+
+    const queryString = params.toString();
+
+    const url = `${pathname}${queryString ? `?${queryString}` : ""}`;
+
+    router.push(url, {
+      scroll: false,
+    });
+  }, [
+    currentPage,
+    debouncedSearch,
+    sortBy,
+    sortOrder,
+    pathname,
+    router,
+  ]);
+
+  /* =========================================================
+     SYNC WITH SERVER PROPS
+  ========================================================= */
+
   useEffect(() => {
     setUsers(initialUsers);
     setTotalPagesState(totalPages);
@@ -106,14 +152,31 @@ export default function UsersClient({
     setSortBy(initialSortBy);
     setSortOrder(initialSortOrder);
     setError(initialError);
-  }, [initialUsers, totalPages, totalCount, initialPage, initialSearch, initialSortBy, initialSortOrder, initialError]);
+  }, [
+    initialUsers,
+    totalPages,
+    totalCount,
+    initialPage,
+    initialSearch,
+    initialSortBy,
+    initialSortOrder,
+    initialError,
+  ]);
 
-  // ─── Fetch data when filters change ──────────────────────────
+  /* =========================================================
+     FETCH USERS WHEN FILTERS CHANGE
+  ========================================================= */
+
   useEffect(() => {
-    const fetchUsers = async () => {
+    let cancelled = false;
+
+    const fetchUsers = async (): Promise<void> => {
       setIsLoading(true);
+      setError(null);
+
       try {
         const timestamp = Date.now();
+
         const response = await axios.get("/api/admin/dashboard/users", {
           params: {
             page: currentPage,
@@ -126,23 +189,69 @@ export default function UsersClient({
           withCredentials: true,
         });
 
-        if (response.data.success) {
-          setUsers(response.data.data.users);
-          setTotalCountState(response.data.data.pagination.total);
-          setTotalPagesState(response.data.data.pagination.totalPages);
+        if (cancelled) {
+          return;
         }
-      } catch (err) {
+
+        if (response.data?.success) {
+          const responseUsers = response.data?.data?.users;
+          const pagination = response.data?.data?.pagination;
+
+          if (Array.isArray(responseUsers)) {
+            setUsers(responseUsers as User[]);
+          }
+
+          if (pagination) {
+            if (typeof pagination.total === "number") {
+              setTotalCountState(pagination.total);
+            }
+
+            if (typeof pagination.totalPages === "number") {
+              setTotalPagesState(
+                Math.max(1, pagination.totalPages),
+              );
+            }
+          }
+        } else {
+          setError(
+            response.data?.message || "Failed to load users.",
+          );
+        }
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+
         console.error("Fetch error:", err);
-        toast.error("Failed to load users.", {
-          style: { background: "#4A2B2B", color: "#FFF3EF" },
-          progressStyle: { background: "#BD4D23" },
+
+        const message = axios.isAxiosError(err)
+          ? err.response?.data?.message
+          : null;
+
+        const errorMessage =
+          typeof message === "string"
+            ? message
+            : "Failed to load users.";
+
+        setError(errorMessage);
+
+        toast.error(errorMessage, {
+          style: {
+            background: "#4A2B2B",
+            color: "#FFF3EF",
+          },
         });
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
-    // Only fetch if the props have changed from initial (avoid double fetch on mount)
+    /*
+     * Avoid fetching the same data that was already supplied
+     * by the server on the initial render.
+     */
     const hasChanged =
       currentPage !== initialPage ||
       debouncedSearch !== initialSearch ||
@@ -150,43 +259,113 @@ export default function UsersClient({
       sortOrder !== initialSortOrder;
 
     if (hasChanged) {
-      fetchUsers();
+      void fetchUsers();
     }
-  }, [currentPage, debouncedSearch, sortBy, sortOrder, initialPage, initialSearch, initialSortBy, initialSortOrder]);
 
-  // ─── Delete handler ──────────────────────────────────────────
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete user "${name}"? This action cannot be undone.`)) return;
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentPage,
+    debouncedSearch,
+    sortBy,
+    sortOrder,
+    initialPage,
+    initialSearch,
+    initialSortBy,
+    initialSortOrder,
+  ]);
 
-    const previousUsers = users;
-    setUsers((prev) => prev.filter((u) => u._id !== id));
+  /* =========================================================
+     DELETE USER
+  ========================================================= */
+
+  const handleDelete = async (
+    id: string,
+    name: string,
+  ): Promise<void> => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete user "${name}"? This action cannot be undone.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const previousUsers = [...users];
+
+    // Optimistic UI update
+    setUsers((prev) =>
+      prev.filter((user) => user._id !== id),
+    );
 
     try {
-      await axios.delete(`/api/admin/dashboard/user/delete/${id}`, {
-        withCredentials: true,
-      });
-      toast.success(`User "${name}" deleted successfully.`, {
-        style: { background: "#2B4735", color: "#FFF3EF" },
-        progressStyle: { background: "#A964FF" },
-      });
-      setTotalCountState((prev) => Math.max(0, prev - 1));
-      // Refresh the page to sync with server
+      await axios.delete(
+        `/api/admin/dashboard/user/delete/${encodeURIComponent(id)}`,
+        {
+          withCredentials: true,
+        },
+      );
+
+      toast.success(
+        `User "${name}" deleted successfully.`,
+        {
+          style: {
+            background: "#2B4735",
+            color: "#FFF3EF",
+          },
+        },
+      );
+
+      setTotalCountState((prev) =>
+        Math.max(0, prev - 1),
+      );
+
+      // Refresh the page to sync with the server.
       router.refresh();
-    } catch (err) {
+    } catch (err: unknown) {
+      // Restore the list if deletion failed.
       setUsers(previousUsers);
-      toast.error("Failed to delete user.", {
-        style: { background: "#4A2B2B", color: "#FFF3EF" },
-        progressStyle: { background: "#BD4D23" },
-      });
+
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.message
+        : null;
+
+      toast.error(
+        typeof message === "string"
+          ? message
+          : "Failed to delete user.",
+        {
+          style: {
+            background: "#4A2B2B",
+            color: "#FFF3EF",
+          },
+        },
+      );
     }
   };
 
-  const goToPrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  /* =========================================================
+     PAGINATION
+  ========================================================= */
+
+  const goToPrevPage = (): void => {
+    if (currentPage > 1) {
+      setCurrentPage((prev) => Math.max(1, prev - 1));
+    }
   };
-  const goToNextPage = () => {
-    if (currentPage < totalPagesState) setCurrentPage(currentPage + 1);
+
+  const goToNextPage = (): void => {
+    if (currentPage < totalPagesState) {
+      setCurrentPage((prev) =>
+        Math.min(totalPagesState, prev + 1),
+      );
+    }
   };
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
 
   return (
     <>
@@ -201,61 +380,98 @@ export default function UsersClient({
         draggable
         pauseOnHover
         theme="colored"
-        style={{ width: "auto", maxWidth: "90%" }}
+        style={{
+          width: "auto",
+          maxWidth: "90%",
+        }}
         toastClassName="custom-toast"
       />
 
-      {/* ─── Header ────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold" style={{ color: COLORS.deepForest }}>
+          <h1
+            className="text-2xl md:text-3xl font-bold"
+            style={{
+              color: COLORS.deepForest,
+            }}
+          >
             Users (صارفین)
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage registered users of Ru-e-Razab</p>
+
+          <p className="text-sm text-gray-500 mt-1">
+            Manage registered users of Ru-e-Razab
+          </p>
         </div>
+
         <div className="relative">
           <MagnifyingGlassIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+
           <input
             type="text"
             placeholder="Search by name, email, phone..."
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            onChange={(e) =>
+              setSearchInput(e.target.value)
+            }
             className="pl-9 pr-4 py-2 bg-white text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full md:w-60"
           />
         </div>
       </div>
 
-      {/* ─── Total count & sorting ─────────────────────────────── */}
+      {/* Total count & sorting */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm text-gray-400">
-          {totalCountState} {totalCountState === 1 ? 'user' : 'users'} found
+          {totalCountState}{" "}
+          {totalCountState === 1 ? "user" : "users"} found
         </span>
+
         <div className="flex items-center gap-2">
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            onChange={(e) =>
+              setSortBy(e.target.value)
+            }
             className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
           >
-            <option value="createdAt">Created Date</option>
-            <option value="accountname">Account Name</option>
-            <option value="firstname">First Name</option>
-            <option value="email">Email</option>
+            <option value="createdAt">
+              Created Date
+            </option>
+            <option value="accountname">
+              Account Name
+            </option>
+            <option value="firstname">
+              First Name
+            </option>
+            <option value="email">
+              Email
+            </option>
           </select>
+
           <select
             value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value)}
+            onChange={(e) =>
+              setSortOrder(e.target.value)
+            }
             className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
           >
-            <option value="desc">Descending</option>
-            <option value="asc">Ascending</option>
+            <option value="desc">
+              Descending
+            </option>
+
+            <option value="asc">
+              Ascending
+            </option>
           </select>
         </div>
       </div>
 
-      {/* ─── Content ────────────────────────────────────────────────── */}
+      {/* Content */}
       {error ? (
         <div className="text-center py-20 bg-white rounded-2xl shadow-sm border border-red-100">
-          <p className="text-red-500">{error}</p>
+          <p className="text-red-500">
+            {error}
+          </p>
         </div>
       ) : isLoading ? (
         <div className="flex justify-center py-20">
@@ -263,9 +479,17 @@ export default function UsersClient({
         </div>
       ) : users.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl shadow-sm border border-gray-100">
-          <div className="text-6xl mb-4">👤</div>
-          <p className="text-gray-500 text-lg">No users found.</p>
-          <p className="text-gray-400 text-sm mt-1">Try adjusting your search.</p>
+          <div className="text-6xl mb-4">
+            👤
+          </div>
+
+          <p className="text-gray-500 text-lg">
+            No users found.
+          </p>
+
+          <p className="text-gray-400 text-sm mt-1">
+            Try adjusting your search.
+          </p>
         </div>
       ) : (
         <>
@@ -274,43 +498,84 @@ export default function UsersClient({
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Account</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Name</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Email</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Phone</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Joined</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">Actions</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">
+                      Account
+                    </th>
+
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">
+                      Name
+                    </th>
+
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">
+                      Email
+                    </th>
+
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">
+                      Phone
+                    </th>
+
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">
+                      Joined
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-100">
                   {users.map((user, idx) => (
                     <motion.tr
                       key={user._id || idx}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.03 }}
+                      initial={{
+                        opacity: 0,
+                        y: 10,
+                      }}
+                      animate={{
+                        opacity: 1,
+                        y: 0,
+                      }}
+                      transition={{
+                        delay: idx * 0.03,
+                      }}
                       className="hover:bg-gray-50/50 transition-colors"
                     >
                       <td className="px-4 py-3 text-gray-800 font-medium">
                         {user.accountname}
                       </td>
+
                       <td className="px-4 py-3 text-gray-700">
-                        {user.firstname} {user.lastname}
+                        {user.firstname}{" "}
+                        {user.lastname}
                       </td>
+
                       <td className="px-4 py-3 text-gray-600">
-                        <a href={`mailto:${user.email}`} className="hover:text-[#A5421D]">
+                        <a
+                          href={`mailto:${user.email}`}
+                          className="hover:text-[#A5421D]"
+                        >
                           {user.email}
                         </a>
                       </td>
+
                       <td className="px-4 py-3 text-gray-600">
                         {user.phonenumber || "—"}
                       </td>
+
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {formatDate(user.createdAt)}
                       </td>
+
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => handleDelete(user._id, `${user.firstname} ${user.lastname}`)}
+                          type="button"
+                          onClick={() =>
+                            handleDelete(
+                              user._id,
+                              `${user.firstname} ${user.lastname}`,
+                            )
+                          }
                           className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
                           title="Delete user"
                         >
@@ -324,22 +589,29 @@ export default function UsersClient({
             </div>
           </div>
 
-          {/* ─── Pagination ────────────────────────────────────────────── */}
+          {/* Pagination */}
           {totalPagesState > 1 && (
             <div className="flex items-center justify-between mt-8">
               <button
+                type="button"
                 onClick={goToPrevPage}
                 disabled={currentPage === 1}
                 className="px-4 py-2 text-sm border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
               >
                 Previous
               </button>
+
               <span className="text-sm text-gray-500">
-                Page {currentPage} of {totalPagesState}
+                Page {currentPage} of{" "}
+                {totalPagesState}
               </span>
+
               <button
+                type="button"
                 onClick={goToNextPage}
-                disabled={currentPage === totalPagesState}
+                disabled={
+                  currentPage === totalPagesState
+                }
                 className="px-4 py-2 text-sm border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
               >
                 Next
@@ -349,29 +621,40 @@ export default function UsersClient({
         </>
       )}
 
+      {/* Toast styling */}
       <style jsx global>{`
         .custom-toast .Toastify__toast {
           border-radius: 12px !important;
         }
+
         .custom-toast .Toastify__toast--success {
-          background: #2B4735 !important;
-          color: #FFF3EF !important;
+          background: #2b4735 !important;
+          color: #fff3ef !important;
         }
-        .custom-toast .Toastify__toast--success .Toastify__progress-bar {
-          background: #A964FF !important;
+
+        .custom-toast
+          .Toastify__toast--success
+          .Toastify__progress-bar {
+          background: #a964ff !important;
         }
+
         .custom-toast .Toastify__toast--error {
-          background: #4A2B2B !important;
-          color: #FFF3EF !important;
+          background: #4a2b2b !important;
+          color: #fff3ef !important;
         }
-        .custom-toast .Toastify__toast--error .Toastify__progress-bar {
-          background: #BD4D23 !important;
+
+        .custom-toast
+          .Toastify__toast--error
+          .Toastify__progress-bar {
+          background: #bd4d23 !important;
         }
+
         .custom-toast .Toastify__toast-body {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
+
         .custom-toast .Toastify__close-button {
-          color: #FFF3EF !important;
+          color: #fff3ef !important;
         }
       `}</style>
     </>

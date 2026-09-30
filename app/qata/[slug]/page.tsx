@@ -94,7 +94,7 @@ export async function generateMetadata({
     : undefined;
 
   return {
-    metadataBase: new URL(SITE_URL),
+    metadataBase: EnvSecrets.appUrl,
     title: `${title} | Ru-e-Razab`,
     description,
     alternates: { canonical: canonicalUrl },

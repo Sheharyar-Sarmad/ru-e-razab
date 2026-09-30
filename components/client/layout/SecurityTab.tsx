@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, type CSSProperties, type FormEvent } from "react";
+import { motion, type Variants } from "framer-motion";
 import { Lock, Eye, EyeOff, ShieldCheck, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api";
 import type { ToastKind } from "./Toast";
@@ -16,13 +16,21 @@ const THEME = {
   border: "#F2D6CF",
 };
 
-const container = {
+const container: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.08 } },
 };
-const item = {
+
+const item: Variants = {
   hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.5,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+    },
+  },
 };
 
 function scorePassword(pw: string) {
@@ -79,7 +87,7 @@ export default function SecurityTab({
     return Object.keys(next).length === 0;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!validate()) return;
 
@@ -163,7 +171,8 @@ export default function SecurityTab({
           value={currentPassword}
           onChange={(v) => {
             setCurrentPassword(v);
-            if (errors.currentPassword) setErrors((e) => ({ ...e, currentPassword: "" }));
+            if (errors.currentPassword)
+              setErrors((prev) => ({ ...prev, currentPassword: "" }));
           }}
           show={showCurrent}
           toggle={() => setShowCurrent((s) => !s)}
@@ -178,7 +187,8 @@ export default function SecurityTab({
           value={newPassword}
           onChange={(v) => {
             setNewPassword(v);
-            if (errors.newPassword) setErrors((e) => ({ ...e, newPassword: "" }));
+            if (errors.newPassword)
+              setErrors((prev) => ({ ...prev, newPassword: "" }));
           }}
           show={showNew}
           toggle={() => setShowNew((s) => !s)}
@@ -195,7 +205,7 @@ export default function SecurityTab({
           >
             <div className="flex items-center gap-3">
               <div
-                className="flex-1 h-1.5 overflow-hidden rounded-full"
+                className="h-1.5 flex-1 overflow-hidden rounded-full"
                 style={{ backgroundColor: THEME.border }}
               >
                 <motion.div
@@ -222,7 +232,8 @@ export default function SecurityTab({
           value={confirmPassword}
           onChange={(v) => {
             setConfirmPassword(v);
-            if (errors.confirmPassword) setErrors((e) => ({ ...e, confirmPassword: "" }));
+            if (errors.confirmPassword)
+              setErrors((prev) => ({ ...prev, confirmPassword: "" }));
           }}
           show={showConfirm}
           toggle={() => setShowConfirm((s) => !s)}
@@ -292,13 +303,16 @@ function PasswordField({
           onChange={(e) => onChange(e.target.value)}
           autoComplete={autoComplete}
           className="font-outfit h-11 w-full rounded-xl border px-3.5 pr-11 text-sm outline-none transition-all focus:ring-2"
-          style={{
-            backgroundColor: "#FFFFFF",
-            borderColor: hasError ? THEME.deepRed : THEME.border,
-            color: THEME.darkText,
-            // @ts-ignore
-            "--tw-ring-color": hasError ? `${THEME.deepRed}55` : `${THEME.darkOrange}55`,
-          }}
+          style={
+            {
+              backgroundColor: "#FFFFFF",
+              borderColor: hasError ? THEME.deepRed : THEME.border,
+              color: THEME.darkText,
+              "--tw-ring-color": hasError
+                ? `${THEME.deepRed}55`
+                : `${THEME.darkOrange}55`,
+            } as CSSProperties
+          }
         />
         <button
           type="button"
