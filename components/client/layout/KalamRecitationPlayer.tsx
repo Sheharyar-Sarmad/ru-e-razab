@@ -248,7 +248,7 @@ export default function KalamRecitationPlayer({ type, content }: Props) {
             className="font-urdu truncate text-sm font-bold leading-[1.8]"
             style={{ color: THEME.darkText }}
           >
-            تلاوت
+            کلام بذریعہ صوت
           </p>
           <p
             className="font-outfit truncate text-[10px] uppercase tracking-widest"

@@ -89,7 +89,7 @@ const milestones: Milestone[] = [
   },
   {
     year: "ریڈیو",
-    titleUrdu: "ریڈیو پر تلاوت",
+    titleUrdu: "ریڈیو پر کلام",
     titleEnglish: "Recited on Radio",
     descUrdu:
       "ان کے کلام کو ریڈیو پر پڑھا گیا، اور سننے والوں کے دلوں میں اُتر گیا۔ آواز اور لفظ کا وہ سنگم ایک یادگار تجربہ تھا۔",
