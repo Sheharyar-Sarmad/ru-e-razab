@@ -446,7 +446,7 @@ export default function KalamOfTheDay() {
             dir="rtl"
             className="text-white font-urdu text-4xl leading-relaxed sm:text-5xl md:text-6xl"
           >
-            کلامِ روز
+            کلامِ تازہ
           </h2>
           <span
             ref={underlineRef}
