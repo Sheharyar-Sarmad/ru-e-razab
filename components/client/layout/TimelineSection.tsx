@@ -15,6 +15,9 @@ if (typeof window !== "undefined") {
 ========================================================= */
 const THEME = {
   strawberryWhite: "#FFF7F4",
+  blush: "#FDEBE3",
+  peach: "#FBDCCB",
+  cream: "#FFF3E8",
   darkOrange: "#C2410C",
   orangeGlow: "#EA580C",
   gold: "#D4A24E",
@@ -102,7 +105,8 @@ const milestones: Milestone[] = [
     year: "ادبی حلقے",
     titleUrdu: "سوشل میڈیا میں نمایاں مقام",
     titleEnglish: "A Recognised Name in Adbi Circles",
-    descUrdu:"سوشل میڈیا کے ادبی حلقوں اور ادبی گروہوں میں اُن کا نام عزت سے لیا جاتا ہے۔ بہت سے اہلِ قلم سوشل میڈیا پر اُن کے کلام کو ایک معیار مانتے ہیں۔",
+    descUrdu:
+      "سوشل میڈیا کے ادبی حلقوں اور ادبی گروہوں میں اُن کا نام عزت سے لیا جاتا ہے۔ بہت سے اہلِ قلم سوشل میڈیا پر اُن کے کلام کو ایک معیار مانتے ہیں۔",
     descEnglish:
       "Respected and celebrated across literary circles, gatherings, and adbi groups — a benchmark for many fellow writers.",
     accent: "#0369A1",
@@ -213,6 +217,21 @@ function ThreeBackground() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     mount.appendChild(renderer.domElement);
 
+    /* Soft round particle sprite (instead of square dots) */
+    const spriteCanvas = document.createElement("canvas");
+    spriteCanvas.width = 64;
+    spriteCanvas.height = 64;
+    const sctx = spriteCanvas.getContext("2d");
+    if (sctx) {
+      const grad = sctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, "rgba(255,255,255,1)");
+      grad.addColorStop(0.45, "rgba(255,255,255,0.85)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      sctx.fillStyle = grad;
+      sctx.fillRect(0, 0, 64, 64);
+    }
+    const sprite = new THREE.CanvasTexture(spriteCanvas);
+
     const particleCount = 200;
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
@@ -238,12 +257,14 @@ function ThreeBackground() {
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.11,
+      size: 0.16,
+      map: sprite,
       vertexColors: true,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.6,
       sizeAttenuation: true,
       depthWrite: false,
+      alphaTest: 0.01,
     });
 
     const points = new THREE.Points(geo, mat);
@@ -342,6 +363,7 @@ function ThreeBackground() {
       document.removeEventListener("visibilitychange", handleVisibility);
       geo.dispose();
       mat.dispose();
+      sprite.dispose();
       ring1Geo.dispose();
       ring1Mat.dispose();
       ring2Geo.dispose();
@@ -409,51 +431,46 @@ export default function TimelineSection() {
         );
       }
 
-      /* -------- 2) Heading -------- */
-      gsap.from(".timeline-heading", {
-        y: 24,
-        opacity: 0,
-        duration: 0.5,
-        ease: "power2.out",
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: "top 80%",
+      /* -------- 2) Heading (always ends fully visible) -------- */
+      gsap.fromTo(
+        ".timeline-heading",
+        { y: 24 },
+        {
+          y: 0,
+          duration: 0.5,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: sectionRef.current,
+            start: "top 80%",
+          },
         },
-      });
+      );
 
-      /* -------- 3) Cards — slide from LEFT or RIGHT based on visual position --------
-         - Card physically on the LEFT of the center line → slides in FROM the left
-         - Card physically on the RIGHT of the center line → slides in FROM the right
-         - Mobile (stacked) → always slides from the right (natural reading order)
-         - Opacity starts at 0.15 (not 0) → always faintly visible, fades to 1
-         - scrub ties progress to scroll → no time-based gap, ever
+      /* -------- 3) Cards — slide only, NEVER faded --------
+         Opacity is no longer animated, so cards are always
+         100% opaque. Only a gentle horizontal slide remains.
       ---------------------------------------------------------- */
       const items = gsap.utils.toArray<HTMLElement>(".timeline-item");
 
       items.forEach((item, index) => {
         if (prefersReducedMotion) {
-          gsap.set(item, { opacity: 1, x: 0 });
+          gsap.set(item, { x: 0 });
           return;
         }
 
-        // Visual position: even index = LEFT of center, odd = RIGHT
         const isLeft = index % 2 === 0;
         const fromX = isLeft ? -50 : 50;
 
         gsap.fromTo(
           item,
+          { x: fromX },
           {
-            opacity: 0.15,
-            x: fromX,
-          },
-          {
-            opacity: 1,
             x: 0,
             ease: "power2.out",
             scrollTrigger: {
               trigger: item,
               start: "top bottom",
-              end: "top 55%",
+              end: "top 60%",
               scrub: 0.4,
               invalidateOnRefresh: true,
             },
@@ -462,16 +479,19 @@ export default function TimelineSection() {
       });
 
       /* -------- 4) Closing note -------- */
-      gsap.from(".timeline-closing", {
-        y: 20,
-        opacity: 0,
-        duration: 0.5,
-        ease: "power2.out",
-        scrollTrigger: {
-          trigger: ".timeline-closing",
-          start: "top 92%",
+      gsap.fromTo(
+        ".timeline-closing",
+        { y: 20 },
+        {
+          y: 0,
+          duration: 0.5,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: ".timeline-closing",
+            start: "top 92%",
+          },
         },
-      });
+      );
     }, sectionRef);
 
     return () => {
@@ -484,17 +504,23 @@ export default function TimelineSection() {
     <section
       ref={sectionRef}
       aria-label="Literary Journey Timeline"
-      style={{ backgroundColor: THEME.strawberryWhite }}
+      style={{
+        backgroundColor: THEME.strawberryWhite,
+        backgroundImage: `linear-gradient(180deg, ${THEME.strawberryWhite} 0%, ${THEME.blush} 35%, ${THEME.peach} 70%, ${THEME.blush} 100%)`,
+      }}
       className="relative w-full overflow-hidden border-t py-24 sm:py-32"
     >
       <ThreeBackground />
 
+      {/* Soft layered colour glows */}
       <div
         className="pointer-events-none absolute inset-0 z-[1]"
         style={{
           background: `
-            radial-gradient(circle at 18% 8%, ${THEME.darkOrange}10, transparent 40%),
-            radial-gradient(circle at 82% 92%, ${THEME.emeraldGreen}0F, transparent 45%)
+            radial-gradient(circle at 15% 8%, ${THEME.darkOrange}18, transparent 42%),
+            radial-gradient(circle at 85% 30%, ${THEME.gold}1C, transparent 40%),
+            radial-gradient(circle at 20% 65%, ${THEME.orangeGlow}14, transparent 42%),
+            radial-gradient(circle at 82% 92%, ${THEME.emeraldGreen}12, transparent 45%)
           `,
         }}
         aria-hidden="true"
@@ -597,7 +623,7 @@ export default function TimelineSection() {
                       right: "8px",
                       width: "28px",
                       height: "28px",
-                      backgroundColor: THEME.strawberryWhite,
+                      backgroundColor: THEME.cream,
                       borderColor: m.accent,
                       boxShadow: `0 4px 14px -4px ${m.accent}80`,
                     }}
@@ -624,17 +650,28 @@ export default function TimelineSection() {
                     `}
                   >
                     <div
-                      className="group relative rounded-2xl border p-6 shadow-sm backdrop-blur-sm transition-all duration-300 hover:shadow-lg sm:p-7"
+                      className="group relative overflow-hidden rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-0.5 sm:p-7"
                       style={{
-                        backgroundColor: "rgba(255, 255, 255, 0.82)",
-                        borderColor: THEME.border,
+                        backgroundColor: THEME.cream,
+                        backgroundImage: `linear-gradient(145deg, #FFF6EE 0%, ${THEME.cream} 45%, ${m.accent}14 100%)`,
+                        borderColor: `${m.accent}30`,
+                        boxShadow: `0 10px 30px -14px ${m.accent}55, 0 2px 6px -2px rgba(120, 60, 30, 0.10)`,
                       }}
                     >
+                      {/* Accent top edge */}
+                      <span
+                        className="absolute inset-x-0 top-0 h-[3px]"
+                        style={{
+                          background: `linear-gradient(90deg, transparent, ${m.accent}, transparent)`,
+                        }}
+                        aria-hidden="true"
+                      />
+
                       <div className="mb-4 flex items-center gap-3">
                         <span
                           className="font-urdu rounded-full px-3 py-1 text-sm font-semibold leading-[1.6]"
                           style={{
-                            backgroundColor: `${m.accent}15`,
+                            backgroundColor: `${m.accent}1F`,
                             color: m.accent,
                           }}
                         >
@@ -645,7 +682,7 @@ export default function TimelineSection() {
                           className="flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-500 group-hover:rotate-6 group-hover:scale-110"
                           style={{
                             borderColor: `${m.accent}50`,
-                            backgroundColor: `${m.accent}10`,
+                            backgroundColor: `${m.accent}14`,
                           }}
                         >
                           <MilestoneIcon icon={m.icon} color={m.accent} />
