@@ -1,5 +1,3 @@
-// app/api/client/numaya/kalam/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import EnvSecrets from "@/config/env.secrets";
