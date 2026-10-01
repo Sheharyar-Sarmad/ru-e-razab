@@ -438,22 +438,27 @@ export default function KalamPoemBody({
 
   if (couplets.length === 0) return null;
 
-  const isSingle = type === "shair";
+  // Nazm and shair show no "شعر N" label; ghazal and qata do.
+  const showLabel = type !== "nazm" && type !== "shair";
 
   return (
     <PoemFrame>
       {couplets.map((c, i) => (
         <Fragment key={i}>
-          {i > 0 && (
-            <OrnamentDivider large={c.band !== couplets[i - 1].band} />
-          )}
+          {i > 0 &&
+            (type === "nazm" && c.band === couplets[i - 1].band ? (
+              // Same band in a nazm: plain spacing, no ornament
+              <div aria-hidden="true" className="my-4 sm:my-6" />
+            ) : (
+              <OrnamentDivider large={c.band !== couplets[i - 1].band} />
+            ))}
           <SherBlock
             index={i + 1}
             line1={c.l1}
             line2={c.l2}
             interactive={interactive}
             keyPrefix={`${type[0]}${i}`}
-            showLabel={!isSingle}
+            showLabel={showLabel}
             reduceMotion={reduceMotion}
           />
         </Fragment>
