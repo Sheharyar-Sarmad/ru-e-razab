@@ -42,11 +42,11 @@ interface CoupletData {
 /* =========================================================
    CONSTANTS
 ========================================================= */
-// Every sher uses exactly this maximum width
-const SHER_MAX_WIDTH = 720; // px
+// Every sher uses up to this maximum width
+const SHER_MAX_WIDTH = 760; // px
 
 // Minimum space between two words on a misra
-const MIN_WORD_GAP = "0.35em";
+const MIN_WORD_GAP = "0.2em";
 
 /* =========================================================
    BACKGROUND PATTERN (8-point star, Islamic geometric)
@@ -93,8 +93,7 @@ function ThreeBackground() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // Subtle golden particles floating softly
-    const count = 100;
+    const count = 90;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
 
@@ -108,9 +107,9 @@ function ThreeBackground() {
 
     const material = new THREE.PointsMaterial({
       color: new THREE.Color(THEME.gold),
-      size: 2.5,
+      size: 2.2,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.4,
       blending: THREE.AdditiveBlending,
     });
 
@@ -150,7 +149,7 @@ function ThreeBackground() {
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[28px]"
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[24px]"
       aria-hidden="true"
     />
   );
@@ -200,7 +199,7 @@ function CornerOrnament({ className }: { className: string }) {
   return (
     <svg
       aria-hidden="true"
-      className={`pointer-events-none absolute h-7 w-7 sm:h-9 sm:w-9 ${className}`}
+      className={`pointer-events-none absolute h-6 w-6 sm:h-8 sm:w-8 ${className}`}
       viewBox="0 0 36 36"
       fill="none"
       stroke={THEME.gold}
@@ -219,7 +218,7 @@ function OrnamentDivider({ large = false }: { large?: boolean }) {
     <div
       aria-hidden="true"
       className={`mx-auto flex w-full max-w-[420px] items-center justify-center gap-3 ${
-        large ? "my-9 sm:my-12" : "my-5 sm:my-7"
+        large ? "my-8 sm:my-10" : "my-4 sm:my-6"
       }`}
     >
       <span
@@ -284,7 +283,7 @@ function SherLabel({ index }: { index: number }) {
 }
 
 /* =========================================================
-   MISRA — Rekhta edge-to-edge word distribution
+   MISRA — Justified words spreading edge to edge
 ========================================================= */
 function Misra({
   text,
@@ -331,7 +330,7 @@ function Misra({
 }
 
 /* =========================================================
-   SHER BLOCK — Constant Rekhta Font Size Across All Shairs
+   SHER BLOCK — Compact Font Sizing & Fixed Weight
 ========================================================= */
 const SherBlock = memo(function SherBlock({
   index,
@@ -362,15 +361,15 @@ const SherBlock = memo(function SherBlock({
         delay: reduceMotion ? 0 : Math.min(index - 1, 8) * 0.06,
         ease: [0.22, 1, 0.36, 1],
       }}
-      className="mx-auto w-full"
+      className="mx-auto w-full px-2 sm:px-4"
       style={{ maxWidth: SHER_MAX_WIDTH }}
     >
       {showLabel && <SherLabel index={index} />}
       <div
         className={
           urdu
-            ? "space-y-1 text-xl sm:text-2xl md:text-[26px] font-normal leading-[2.3] sm:leading-[2.4]"
-            : "space-y-1 text-base sm:text-lg md:text-xl font-normal leading-[1.8] tracking-wide"
+            ? "space-y-0.5 text-base sm:text-lg md:text-xl font-normal leading-[2.1] sm:leading-[2.2]"
+            : "space-y-0.5 text-xs sm:text-sm md:text-base font-normal leading-[1.6] tracking-wide"
         }
       >
         <Misra
@@ -391,12 +390,12 @@ const SherBlock = memo(function SherBlock({
 });
 
 /* =========================================================
-   FRAME — Classy parchment background with Three.js canvas
+   FRAME — Maximized width container with outer margin removed
 ========================================================= */
 function PoemFrame({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="relative mx-auto w-full overflow-hidden rounded-[28px] border px-4 py-9 sm:px-10 sm:py-12"
+      className="relative mx-auto w-full overflow-hidden rounded-[24px] border px-2 py-7 sm:px-5 sm:py-10"
       style={{
         borderColor: THEME.goldSoft,
         background: [
@@ -429,15 +428,15 @@ function PoemFrame({ children }: { children: React.ReactNode }) {
       {/* Inner gold frame */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-2.5 z-0 rounded-[20px] border sm:inset-3.5"
+        className="pointer-events-none absolute inset-1.5 z-0 rounded-[18px] border sm:inset-2.5"
         style={{ borderColor: THEME.goldSoft }}
       />
 
       {/* Corner ornaments */}
-      <CornerOrnament className="left-3 top-3 z-0 sm:left-4 sm:top-4" />
-      <CornerOrnament className="right-3 top-3 z-0 -scale-x-100 sm:right-4 sm:top-4" />
-      <CornerOrnament className="bottom-3 left-3 z-0 -scale-y-100 sm:bottom-4 sm:left-4" />
-      <CornerOrnament className="bottom-3 right-3 z-0 -scale-100 sm:bottom-4 sm:right-4" />
+      <CornerOrnament className="left-2 top-2 z-0 sm:left-3 sm:top-3" />
+      <CornerOrnament className="right-2 top-2 z-0 -scale-x-100 sm:right-3 sm:top-3" />
+      <CornerOrnament className="bottom-2 left-2 z-0 -scale-y-100 sm:bottom-3 sm:left-3" />
+      <CornerOrnament className="bottom-2 right-2 z-0 -scale-100 sm:bottom-3 sm:right-3" />
 
       <div className="relative z-10">{children}</div>
     </div>
@@ -467,7 +466,7 @@ export default function KalamPoemBody({
           {i > 0 &&
             (type === "nazm" && c.band === couplets[i - 1].band ? (
               // Same band in a nazm: plain spacing, no ornament
-              <div aria-hidden="true" className="my-4 sm:my-6" />
+              <div aria-hidden="true" className="my-3 sm:my-5" />
             ) : (
               <OrnamentDivider large={c.band !== couplets[i - 1].band} />
             ))}
