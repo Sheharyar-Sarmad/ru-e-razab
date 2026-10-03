@@ -4,6 +4,7 @@ import React, {
   Fragment,
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
@@ -43,10 +44,18 @@ interface CoupletData {
    CONSTANTS
 ========================================================= */
 // Every sher uses up to this maximum width
-const SHER_MAX_WIDTH = 760; // px
+const SHER_MAX_WIDTH = 880; // px
 
 // Minimum space between two words on a misra
 const MIN_WORD_GAP = "0.2em";
+
+// Auto-fit never shrinks text below this fraction of the base size.
+// If a line still doesn't fit, it wraps instead of being clipped.
+const MIN_FIT_FACTOR = 0.55;
+
+// Layout effect on the client, plain effect on the server (no SSR warning)
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /* =========================================================
    BACKGROUND PATTERN (8-point star, Islamic geometric)
@@ -70,39 +79,51 @@ function toUrduNumeral(n: number): string {
 }
 
 /* =========================================================
-   THREE.JS BACKGROUND (Classy Ambient Golden Dust Field)
+   THREE.JS BACKGROUND (Ambient Golden Dust Field)
+   - safe if WebGL is unavailable
+   - respects reduced motion
+   - pauses when tab hidden
+   - resizes with its container (ResizeObserver)
 ========================================================= */
-function ThreeBackground() {
+function ThreeBackground({ reduceMotion }: { reduceMotion: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let renderer: THREE.WebGLRenderer | null = null;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    } catch {
+      return; // WebGL unavailable: the CSS background still looks fine
+    }
+
+    const getSize = () => ({
+      w: Math.max(1, container.clientWidth),
+      h: Math.max(1, container.clientHeight),
+    });
+
+    const { w, h } = getSize();
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
+    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 1000);
     camera.position.z = 350;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.domElement.style.display = "block";
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
     container.appendChild(renderer.domElement);
 
     const count = 90;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
-
     for (let i = 0; i < count; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 600;
       positions[i * 3 + 1] = (Math.random() - 0.5) * 600;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 300;
     }
-
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
 
     const material = new THREE.PointsMaterial({
@@ -116,40 +137,60 @@ function ThreeBackground() {
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    let animationFrameId: number;
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
+    let frameId = 0;
+    let running = false;
+
+    const render = () => renderer!.render(scene, camera);
+
+    const tick = () => {
+      frameId = requestAnimationFrame(tick);
       particles.rotation.y += 0.0004;
       particles.rotation.x += 0.0002;
-      renderer.render(scene, camera);
+      render();
     };
-    animate();
 
-    const handleResize = () => {
-      if (!container) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
+    const start = () => {
+      if (running || reduceMotion) return;
+      running = true;
+      frameId = requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      running = false;
+      cancelAnimationFrame(frameId);
+    };
+
+    const onVisibility = () => (document.hidden ? stop() : start());
+
+    if (reduceMotion) render(); // single static frame
+    else start();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const ro = new ResizeObserver(() => {
+      const s = getSize();
+      camera.aspect = s.w / s.h;
       camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    };
-
-    window.addEventListener("resize", handleResize);
+      renderer!.setSize(s.w, s.h);
+      if (!running) render();
+    });
+    ro.observe(container);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(animationFrameId);
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
+      stop();
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (renderer!.domElement.parentNode === container) {
+        container.removeChild(renderer!.domElement);
       }
       geometry.dispose();
       material.dispose();
-      renderer.dispose();
+      renderer!.dispose();
     };
-  }, []);
+  }, [reduceMotion]);
 
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[24px]"
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"
       aria-hidden="true"
     />
   );
@@ -199,7 +240,7 @@ function CornerOrnament({ className }: { className: string }) {
   return (
     <svg
       aria-hidden="true"
-      className={`pointer-events-none absolute h-6 w-6 sm:h-8 sm:w-8 ${className}`}
+      className={`pointer-events-none absolute h-5 w-5 sm:h-8 sm:w-8 ${className}`}
       viewBox="0 0 36 36"
       fill="none"
       stroke={THEME.gold}
@@ -218,7 +259,7 @@ function OrnamentDivider({ large = false }: { large?: boolean }) {
     <div
       aria-hidden="true"
       className={`mx-auto flex w-full max-w-[420px] items-center justify-center gap-3 ${
-        large ? "my-8 sm:my-10" : "my-4 sm:my-6"
+        large ? "my-7 sm:my-10" : "my-3 sm:my-6"
       }`}
     >
       <span
@@ -228,17 +269,17 @@ function OrnamentDivider({ large = false }: { large?: boolean }) {
         }}
       />
       <span
-        className={`rotate-45 ${large ? "h-2.5 w-2.5" : "h-1.5 w-1.5"}`}
+        className={`shrink-0 rotate-45 ${large ? "h-2.5 w-2.5" : "h-1.5 w-1.5"}`}
         style={{ backgroundColor: THEME.rust }}
       />
       {large && (
         <>
           <span
-            className="h-1.5 w-1.5 rotate-45 border"
+            className="h-1.5 w-1.5 shrink-0 rotate-45 border"
             style={{ borderColor: THEME.gold }}
           />
           <span
-            className="h-2.5 w-2.5 rotate-45"
+            className="h-2.5 w-2.5 shrink-0 rotate-45"
             style={{ backgroundColor: THEME.rust }}
           />
         </>
@@ -255,7 +296,7 @@ function OrnamentDivider({ large = false }: { large?: boolean }) {
 
 function SherLabel({ index }: { index: number }) {
   return (
-    <div className="mb-2 flex items-center justify-center gap-2" dir="rtl">
+    <div className="mb-1.5 flex items-center justify-center gap-2" dir="rtl">
       <span
         className="h-px w-6 sm:w-10"
         style={{
@@ -283,7 +324,7 @@ function SherLabel({ index }: { index: number }) {
 }
 
 /* =========================================================
-   MISRA — Justified words spreading edge to edge
+   MISRA — words justified edge to edge on one line
 ========================================================= */
 function Misra({
   text,
@@ -306,7 +347,7 @@ function Misra({
     <div
       data-misra
       dir={isUrdu ? "rtl" : "ltr"}
-      className={`flex w-full flex-nowrap items-baseline ${fontClass}`}
+      className={`flex w-full min-w-0 flex-nowrap items-baseline ${fontClass}`}
       style={{
         justifyContent: words.length === 1 ? "center" : "space-between",
         columnGap: MIN_WORD_GAP,
@@ -314,10 +355,7 @@ function Misra({
       }}
     >
       {words.map((word, i) => (
-        <span
-          key={`${keyPrefix}-${i}`}
-          className="shrink-0 whitespace-nowrap"
-        >
+        <span key={`${keyPrefix}-${i}`} className="shrink-0 whitespace-nowrap">
           {interactive ? (
             <KalamClickableWord word={word} fullLine={fullSher} />
           ) : (
@@ -330,7 +368,51 @@ function Misra({
 }
 
 /* =========================================================
-   SHER BLOCK — Compact Font Sizing & Fixed Weight
+   AUTO-FIT — shrinks the font only as much as needed so no
+   misra ever overflows. Both lines of a sher share one size
+   so they always look matched. Falls back to wrapping if the
+   text would otherwise become unreadably small.
+========================================================= */
+function fitSher(wrapper: HTMLElement) {
+  // Reset to the CSS-defined base size, then measure
+  wrapper.style.fontSize = "";
+  const misras = Array.from(
+    wrapper.querySelectorAll<HTMLElement>("[data-misra]")
+  );
+  misras.forEach((m) => (m.style.flexWrap = ""));
+
+  const base = parseFloat(getComputedStyle(wrapper).fontSize);
+  if (!base || !misras.length) return;
+
+  let factor = 1;
+  misras.forEach((m) => {
+    const available = m.clientWidth;
+    const kids = Array.from(m.children) as HTMLElement[];
+    if (!kids.length || !available) return;
+    const gap = parseFloat(getComputedStyle(m).columnGap) || 0;
+    const needed =
+      kids.reduce((sum, k) => sum + k.getBoundingClientRect().width, 0) +
+      gap * Math.max(0, kids.length - 1);
+    if (needed > available) factor = Math.min(factor, available / needed);
+  });
+
+  if (factor >= 1) return;
+
+  if (factor < MIN_FIT_FACTOR) {
+    // Too long to fit on one line at a readable size: wrap instead of clip
+    wrapper.style.fontSize = `${Math.floor(base * MIN_FIT_FACTOR * 100) / 100}px`;
+    misras.forEach((m) => {
+      m.style.flexWrap = "wrap";
+      m.style.rowGap = "0.1em";
+    });
+    return;
+  }
+
+  wrapper.style.fontSize = `${Math.floor(base * factor * 0.98 * 100) / 100}px`;
+}
+
+/* =========================================================
+   SHER BLOCK
 ========================================================= */
 const SherBlock = memo(function SherBlock({
   index,
@@ -351,6 +433,40 @@ const SherBlock = memo(function SherBlock({
 }) {
   const fullSher = `${line1}\n${line2}`;
   const urdu = isUrduScript(line1 || line2);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useIsoLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+
+    let lastWidth = -1;
+    let cancelled = false;
+
+    const run = () => {
+      if (cancelled) return;
+      fitSher(el);
+    };
+
+    run();
+
+    // Re-fit only when the WIDTH changes (rotation, resize, sidebar toggle).
+    // Ignoring height changes prevents a resize -> refit -> resize loop.
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w === lastWidth) return;
+      lastWidth = w;
+      run();
+    });
+    ro.observe(el);
+
+    // Re-fit once web fonts finish loading (glyph widths change)
+    document.fonts?.ready.then(run).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      ro.disconnect();
+    };
+  }, [line1, line2, interactive]);
 
   return (
     <motion.div
@@ -361,15 +477,16 @@ const SherBlock = memo(function SherBlock({
         delay: reduceMotion ? 0 : Math.min(index - 1, 8) * 0.06,
         ease: [0.22, 1, 0.36, 1],
       }}
-      className="mx-auto w-full px-2 sm:px-4"
+      className="mx-auto w-full min-w-0 px-0.5 sm:px-3"
       style={{ maxWidth: SHER_MAX_WIDTH }}
     >
       {showLabel && <SherLabel index={index} />}
       <div
+        ref={textRef}
         className={
           urdu
-            ? "space-y-0.5 text-base sm:text-lg md:text-xl font-normal leading-[2.1] sm:leading-[2.2]"
-            : "space-y-0.5 text-xs sm:text-sm md:text-base font-normal leading-[1.6] tracking-wide"
+            ? "w-full min-w-0 space-y-0 text-[15px] font-normal leading-[2] sm:text-[17px] sm:leading-[2.05] md:text-[19px]"
+            : "w-full min-w-0 space-y-0.5 text-[11px] font-normal leading-[1.6] tracking-wide sm:text-[13px] md:text-[15px]"
         }
       >
         <Misra
@@ -390,12 +507,18 @@ const SherBlock = memo(function SherBlock({
 });
 
 /* =========================================================
-   FRAME — Maximized width container with outer margin removed
+   FRAME
 ========================================================= */
-function PoemFrame({ children }: { children: React.ReactNode }) {
+function PoemFrame({
+  children,
+  reduceMotion,
+}: {
+  children: React.ReactNode;
+  reduceMotion: boolean;
+}) {
   return (
     <div
-      className="relative mx-auto w-full overflow-hidden rounded-[24px] border px-2 py-7 sm:px-5 sm:py-10"
+      className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-[20px] border px-3 py-6 sm:rounded-[24px] sm:px-8 sm:py-10"
       style={{
         borderColor: THEME.goldSoft,
         background: [
@@ -409,7 +532,7 @@ function PoemFrame({ children }: { children: React.ReactNode }) {
       }}
     >
       {/* Three.js animated background */}
-      <ThreeBackground />
+      <ThreeBackground reduceMotion={reduceMotion} />
 
       {/* Geometric star pattern */}
       <div
@@ -428,7 +551,7 @@ function PoemFrame({ children }: { children: React.ReactNode }) {
       {/* Inner gold frame */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-1.5 z-0 rounded-[18px] border sm:inset-2.5"
+        className="pointer-events-none absolute inset-1.5 z-0 rounded-[15px] border sm:inset-2.5 sm:rounded-[18px]"
         style={{ borderColor: THEME.goldSoft }}
       />
 
@@ -438,7 +561,7 @@ function PoemFrame({ children }: { children: React.ReactNode }) {
       <CornerOrnament className="bottom-2 left-2 z-0 -scale-y-100 sm:bottom-3 sm:left-3" />
       <CornerOrnament className="bottom-2 right-2 z-0 -scale-100 sm:bottom-3 sm:right-3" />
 
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 min-w-0">{children}</div>
     </div>
   );
 }
@@ -460,7 +583,7 @@ export default function KalamPoemBody({
   const showLabel = type !== "nazm" && type !== "shair";
 
   return (
-    <PoemFrame>
+    <PoemFrame reduceMotion={reduceMotion}>
       {couplets.map((c, i) => (
         <Fragment key={i}>
           {i > 0 &&
