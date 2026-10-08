@@ -27,7 +27,7 @@ const MIN_LINE_LENGTH = 2;
 const MAX_LINE_LENGTH = 300;
 
 // Fixed takhallus for Azad Nazm
-const FIXED_TAKHALLUS = "رزب تبریز";
+const FIXED_TAKHALLUS = "رزبؔ تبریز";
 
 const ALLOWED_COVER_TYPES = [
   "image/jpeg",

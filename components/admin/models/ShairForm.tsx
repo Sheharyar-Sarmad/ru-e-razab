@@ -756,7 +756,7 @@ export default function ShairForm({
                   : `${COLORS.deepForest}40`,
                 background: `${COLORS.warmWhite}40`,
               }}
-              placeholder="مثال: رزب تبریز"
+              placeholder="مثال: رزبؔ تبریز"
             />
 
             {errors.takhallus?.message && (
