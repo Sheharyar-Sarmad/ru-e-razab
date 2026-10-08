@@ -213,14 +213,20 @@ function toCouplets(type: KalamType, content: any): CoupletData[] {
       : [];
     result = [{ l1: str(lines[0]), l2: str(lines[1]), band: 0 }];
   } else if (type === "nazm") {
-    const bands: any[] = Array.isArray(content) ? content : [];
-    result = bands.flatMap((band, bandIdx) =>
-      (Array.isArray(band?.shairs) ? band.shairs : []).map((shair: any) => ({
-        l1: str(shair?.lines?.[0]),
-        l2: str(shair?.lines?.[1]),
-        band: bandIdx,
-      }))
-    );
+    // Azad Nazm: flat string[] of misras.
+    // Pair them 2 at a time for visual display (line1 above line2).
+    const lines: string[] = Array.isArray(content)
+      ? (content as unknown[]).map(str)
+      : [];
+    const paired: CoupletData[] = [];
+    for (let i = 0; i < lines.length; i += 2) {
+      paired.push({
+        l1: lines[i] ?? "",
+        l2: lines[i + 1] ?? "",
+        band: 0, // no band concept in Azad Nazm
+      });
+    }
+    result = paired;
   } else {
     const couples: any[] = Array.isArray(content) ? content : [];
     result = couples.map((couple) => ({

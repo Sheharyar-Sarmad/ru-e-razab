@@ -23,7 +23,7 @@ interface Nazm {
   unwan: string;
   takhallus: string;
   slug: string;
-  content: { shairs: { lines: string[] }[] }[];
+  content: string[];
   category: string[];
   coverImage: string;
   views: number;
