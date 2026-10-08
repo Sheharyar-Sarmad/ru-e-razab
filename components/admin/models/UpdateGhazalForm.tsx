@@ -1,7 +1,7 @@
 // components/admin/models/UpdateGhazalForm.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   XMarkIcon,
@@ -45,6 +45,10 @@ interface UpdateGhazalFormProps {
   onUpdate: () => void;
 }
 
+const MAX_SHAIRS = 20;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
+
 export default function UpdateGhazalForm({
   ghazal,
   isOpen,
@@ -55,9 +59,7 @@ export default function UpdateGhazalForm({
   const [error, setError] = useState<string | null>(null);
 
   const [takhallus, setTakhallus] = useState("");
-  const [shairs, setShairs] = useState<
-    { line1: string; line2: string }[]
-  >([]);
+  const [shairs, setShairs] = useState<{ line1: string; line2: string }[]>([]);
   const [categories, setCategories] = useState("");
   const [metaTitle, setMetaTitle] = useState("");
   const [metaDescription, setMetaDescription] = useState("");
@@ -69,18 +71,34 @@ export default function UpdateGhazalForm({
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
 
+  // Quick paste panel state
+  const [pasteText, setPasteText] = useState("");
+  const [pasteInfo, setPasteInfo] = useState<{
+    lines: number;
+    shairs: number;
+    odd: boolean;
+    truncated: boolean;
+  } | null>(null);
+
   useEffect(() => {
     if (ghazal && isOpen) {
       setTakhallus(ghazal.takhallus);
 
-      setShairs(
-        ghazal.content.map((s) => ({
-          line1: s.lines[0],
-          line2: s.lines[1],
-        }))
+      const initialShairs = (ghazal.content || []).map((s) => ({
+        line1: s.lines?.[0] || "",
+        line2: s.lines?.[1] || "",
+      }));
+      setShairs(initialShairs);
+      // Seed the paste textarea with the current content so admin can edit inline
+      setPasteText(
+        initialShairs
+          .flatMap((s) => [s.line1, s.line2])
+          .filter(Boolean)
+          .join("\n")
       );
+      setPasteInfo(null);
 
-      setCategories(ghazal.category.join(", "));
+      setCategories((ghazal.category || []).join(", "));
       setMetaTitle(ghazal.metaTitle || "");
       setMetaDescription(ghazal.metaDescription || "");
       setFeatured(ghazal.featured || false);
@@ -91,12 +109,85 @@ export default function UpdateGhazalForm({
     }
   }, [ghazal, isOpen]);
 
-  const handleAddShair = () =>
-    setShairs([...shairs, { line1: "", line2: "" }]);
+  // ---------- Quick Paste (2 lines = 1 shair) ----------
+  const handlePasteChange = (text: string) => {
+    setPasteText(text);
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      setShairs([{ line1: "", line2: "" }]);
+      setPasteInfo(null);
+      return;
+    }
+
+    const built: { line1: string; line2: string }[] = [];
+    for (let i = 0; i < lines.length; i += 2) {
+      built.push({
+        line1: lines[i] ?? "",
+        line2: lines[i + 1] ?? "",
+      });
+    }
+
+    const truncated = built.length > MAX_SHAIRS;
+    const finalShairs = built.slice(0, MAX_SHAIRS);
+
+    setShairs(finalShairs);
+    setPasteInfo({
+      lines: lines.length,
+      shairs: finalShairs.length,
+      odd: lines.length % 2 !== 0,
+      truncated,
+    });
+  };
+
+  const clearPaste = () => {
+    setPasteText("");
+    setPasteInfo(null);
+    setShairs([{ line1: "", line2: "" }]);
+  };
+
+  // Live preview of parsed shairs
+  const previewShairs = useMemo(() => {
+    const lines = pasteText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const out: { line1: string; line2: string }[] = [];
+    for (let i = 0; i < lines.length && out.length < MAX_SHAIRS; i += 2) {
+      out.push({ line1: lines[i] ?? "", line2: lines[i + 1] ?? "" });
+    }
+    return out;
+  }, [pasteText]);
+
+  // ---------- Shair handlers ----------
+  const handleAddShair = () => {
+    if (shairs.length < MAX_SHAIRS) {
+      setShairs([...shairs, { line1: "", line2: "" }]);
+    }
+  };
 
   const handleRemoveShair = (index: number) =>
     setShairs(shairs.filter((_, i) => i !== index));
 
+  const handleShairLineChange = (
+    index: number,
+    key: "line1" | "line2",
+    value: string
+  ) => {
+    const next = [...shairs];
+    next[index] = { ...next[index], [key]: value };
+    setShairs(next);
+    // Keep paste textarea roughly in sync so it doesn't get out of step
+    setPasteText(
+      next.flatMap((s) => [s.line1, s.line2]).filter(Boolean).join("\n")
+    );
+  };
+
+  // ---------- Link handlers ----------
   const handleAddLink = () => {
     if (newLinkTitle.trim() && newLinkUrl.trim()) {
       setLinks([
@@ -106,7 +197,6 @@ export default function UpdateGhazalForm({
           url: newLinkUrl.trim(),
         },
       ]);
-
       setNewLinkTitle("");
       setNewLinkUrl("");
     }
@@ -115,35 +205,48 @@ export default function UpdateGhazalForm({
   const handleRemoveLink = (index: number) =>
     setLinks(links.filter((_, i) => i !== index));
 
+  // ---------- Submit ----------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!ghazal) return;
+
+    // Client-side guard for shairs
+    const cleanShairs = shairs
+      .map((s) => ({
+        lines: [s.line1.trim(), s.line2.trim()],
+      }))
+      .filter((s) => s.lines[0] || s.lines[1]);
+
+    if (cleanShairs.length < 1 || cleanShairs.length > MAX_SHAIRS) {
+      const msg = `Content must have 1-${MAX_SHAIRS} shairs`;
+      setError(msg);
+      toast.error(msg, { style: { background: "#4A2B2B", color: "#FFF3EF" } });
+      return;
+    }
+
+    for (let i = 0; i < cleanShairs.length; i++) {
+      const [l1, l2] = cleanShairs[i].lines;
+      for (const [j, line] of [l1, l2].entries()) {
+        if (line.length < MIN_LINE_LENGTH || line.length > MAX_LINE_LENGTH) {
+          const msg = `Shair #${i + 1}, line ${j + 1} must be ${MIN_LINE_LENGTH}-${MAX_LINE_LENGTH} chars`;
+          setError(msg);
+          toast.error(msg, { style: { background: "#4A2B2B", color: "#FFF3EF" } });
+          return;
+        }
+      }
+    }
 
     setLoading(true);
     setError(null);
 
     try {
       const formData = new FormData();
-
       formData.append("takhallus", takhallus);
-
-      formData.append(
-        "content",
-        JSON.stringify(
-          shairs.map((s) => ({
-            lines: [s.line1, s.line2],
-          }))
-        )
-      );
-
+      formData.append("content", JSON.stringify(cleanShairs));
       formData.append(
         "categories",
-        JSON.stringify(
-          categories.split(",").map((c) => c.trim())
-        )
+        JSON.stringify(categories.split(",").map((c) => c.trim()).filter(Boolean))
       );
-
       formData.append("metaTitle", metaTitle);
       formData.append("metaDescription", metaDescription);
       formData.append("featured", String(featured));
@@ -152,7 +255,6 @@ export default function UpdateGhazalForm({
       if (coverImageFile) {
         formData.append("coverImage", coverImageFile);
       }
-
       mediaFiles.forEach((file) => {
         formData.append("media", file);
       });
@@ -161,50 +263,27 @@ export default function UpdateGhazalForm({
         `/api/admin/dashboard/tarmeem/ghazal/${ghazal.slug}`,
         formData,
         {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
+          headers: { "Content-Type": "multipart/form-data" },
           withCredentials: true,
         }
       );
 
       if (response.data.success) {
         toast.success("غزل اپ ڈیٹ ہوگئی!", {
-          style: {
-            background: "#2B4735",
-            color: "#FFF3EF",
-          },
+          style: { background: "#2B4735", color: "#FFF3EF" },
         });
-
         onUpdate();
         onClose();
       } else {
-        const msg =
-          response.data.message || "Failed to update ghazal";
-
+        const msg = response.data.message || "Failed to update ghazal";
         setError(msg);
-
-        toast.error(msg, {
-          style: {
-            background: "#4A2B2B",
-            color: "#FFF3EF",
-          },
-        });
+        toast.error(msg, { style: { background: "#4A2B2B", color: "#FFF3EF" } });
       }
     } catch (err: any) {
       const msg =
-        err.response?.data?.message ||
-        err.message ||
-        "Network error";
-
+        err.response?.data?.message || err.message || "Network error";
       setError(msg);
-
-      toast.error(msg, {
-        style: {
-          background: "#4A2B2B",
-          color: "#FFF3EF",
-        },
-      });
+      toast.error(msg, { style: { background: "#4A2B2B", color: "#FFF3EF" } });
     } finally {
       setLoading(false);
     }
@@ -235,7 +314,6 @@ export default function UpdateGhazalForm({
             >
               Update Ghazal
             </h2>
-
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -259,7 +337,6 @@ export default function UpdateGhazalForm({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Takhallus (تخلص)
                 </label>
-
                 <input
                   type="text"
                   value={takhallus}
@@ -268,12 +345,10 @@ export default function UpdateGhazalForm({
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Featured
                 </label>
-
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -281,7 +356,6 @@ export default function UpdateGhazalForm({
                     onChange={(e) => setFeatured(e.target.checked)}
                     className="w-4 h-4 text-emerald-600 rounded"
                   />
-
                   <span className="text-sm text-gray-600">
                     Mark as Featured
                   </span>
@@ -289,12 +363,137 @@ export default function UpdateGhazalForm({
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Content (اشعار)
-              </label>
+            {/* ---------- Quick Paste Panel ---------- */}
+            <div
+              className="rounded-xl border p-4"
+              style={{
+                borderColor: `${COLORS.deepForest}30`,
+                background: `${COLORS.warmWhite}60`,
+              }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <label
+                  className="text-sm font-medium"
+                  style={{ color: COLORS.deepForest }}
+                >
+                  مکمل غزل ایک ساتھ پیسٹ کریں
+                </label>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{
+                    background: `${COLORS.deepForest}15`,
+                    color: COLORS.deepForest,
+                  }}
+                >
+                  تجویز کردہ ⭐
+                </span>
+              </div>
 
-              <div className="space-y-3">
+              <p className="text-xs text-gray-500 mb-2">
+                ہر مصرع نئی سطر میں لکھیں۔ ہر دو مصرعوں سے ایک شعر بنے گا اور
+                نیچے اشعار خودبخود اپ ڈیٹ ہو جائیں گے۔ (زیادہ سے زیادہ{" "}
+                {MAX_SHAIRS} اشعار)
+              </p>
+
+              <textarea
+                value={pasteText}
+                onChange={(e) => handlePasteChange(e.target.value)}
+                rows={10}
+                dir="rtl"
+                placeholder={
+                  "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n..."
+                }
+                className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
+                style={{
+                  borderColor: `${COLORS.deepForest}40`,
+                  background: "#FFFFFF",
+                }}
+              />
+
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs">
+                  {pasteInfo && (
+                    <span className="text-gray-600">
+                      {pasteInfo.lines} مصرعے ← {pasteInfo.shairs} اشعار
+                    </span>
+                  )}
+                  {pasteInfo?.odd && (
+                    <span className="mr-3 text-amber-600">
+                      ⚠ مصرعوں کی تعداد طاق ہے، آخری شعر کا دوسرا مصرع خالی ہے
+                    </span>
+                  )}
+                  {pasteInfo?.truncated && (
+                    <span className="mr-3 text-red-500">
+                      ⚠ صرف پہلے {MAX_SHAIRS} اشعار لیے گئے ہیں
+                    </span>
+                  )}
+                </div>
+                {pasteText && (
+                  <button
+                    type="button"
+                    onClick={clearPaste}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    صاف کریں
+                  </button>
+                )}
+              </div>
+
+              {/* Live preview of parsed shairs */}
+              {previewShairs.length > 0 && (
+                <div
+                  className="mt-3 max-h-64 overflow-y-auto rounded-lg border p-3"
+                  style={{
+                    borderColor: `${COLORS.deepForest}20`,
+                    background: `${COLORS.warmWhite}40`,
+                  }}
+                >
+                  <p
+                    className="text-xs mb-2 font-medium"
+                    style={{ color: COLORS.deepForest }}
+                  >
+                    پیش نظارہ ({previewShairs.length} اشعار)
+                  </p>
+                  <ol className="space-y-2 font-urdu leading-[2] text-sm">
+                    {previewShairs.map((s, i) => (
+                      <li
+                        key={i}
+                        className="border-r-2 pr-3"
+                        style={{ borderColor: COLORS.tataBlue }}
+                      >
+                        <span
+                          className="text-xs block mb-1"
+                          style={{ color: COLORS.tataBlue }}
+                        >
+                          شعر #{i + 1}
+                        </span>
+                        <div>{s.line1}</div>
+                        <div>{s.line2}</div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+
+            {/* ---------- Shairs (manual edit) ---------- */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Content (اشعار) — 1-{MAX_SHAIRS}
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddShair}
+                  disabled={shairs.length >= MAX_SHAIRS}
+                  className="flex items-center gap-2 text-sm font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                >
+                  <PlusCircleIcon className="w-4 h-4" />
+                  Add Shair
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-96 overflow-y-auto">
                 {shairs.map((shair, index) => (
                   <div
                     key={index}
@@ -306,28 +505,22 @@ export default function UpdateGhazalForm({
 
                     <input
                       type="text"
-                      placeholder="Mistah (مصرع اول)"
+                      placeholder="مصرع اول"
                       value={shair.line1}
-                      onChange={(e) => {
-                        const newShairs = [...shairs];
-                        newShairs[index].line1 = e.target.value;
-                        setShairs(newShairs);
-                      }}
-                      required
-                      className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm"
+                      onChange={(e) =>
+                        handleShairLineChange(index, "line1", e.target.value)
+                      }
+                      className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm font-urdu"
                     />
 
                     <input
                       type="text"
-                      placeholder="Mistah (مصرع دوم)"
+                      placeholder="مصرع دوم"
                       value={shair.line2}
-                      onChange={(e) => {
-                        const newShairs = [...shairs];
-                        newShairs[index].line2 = e.target.value;
-                        setShairs(newShairs);
-                      }}
-                      required
-                      className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm"
+                      onChange={(e) =>
+                        handleShairLineChange(index, "line2", e.target.value)
+                      }
+                      className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm font-urdu"
                     />
 
                     <button
@@ -340,15 +533,6 @@ export default function UpdateGhazalForm({
                     </button>
                   </div>
                 ))}
-
-                <button
-                  type="button"
-                  onClick={handleAddShair}
-                  className="flex items-center gap-2 text-sm font-medium text-emerald-600 hover:text-emerald-700"
-                >
-                  <PlusCircleIcon className="w-4 h-4" />
-                  Add Shair (شعر شامل کریں)
-                </button>
               </div>
             </div>
 
@@ -356,7 +540,6 @@ export default function UpdateGhazalForm({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Categories (زمرہ جات)
               </label>
-
               <input
                 type="text"
                 value={categories}
@@ -372,7 +555,6 @@ export default function UpdateGhazalForm({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Meta Title (SEO)
                 </label>
-
                 <input
                   type="text"
                   value={metaTitle}
@@ -381,12 +563,10 @@ export default function UpdateGhazalForm({
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Meta Description (SEO)
                 </label>
-
                 <input
                   type="text"
                   value={metaDescription}
@@ -401,21 +581,15 @@ export default function UpdateGhazalForm({
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 External Links
               </label>
-
               <div className="space-y-2">
                 {links.map((link, index) => (
-                  <div
-                    key={index}
-                    className="flex gap-2 items-center text-sm"
-                  >
+                  <div key={index} className="flex gap-2 items-center text-sm">
                     <span className="flex-1 font-medium text-gray-700">
                       {link.title}
                     </span>
-
                     <span className="flex-1 text-gray-500 truncate">
                       {link.url}
                     </span>
-
                     <button
                       type="button"
                       onClick={() => handleRemoveLink(index)}
@@ -434,7 +608,6 @@ export default function UpdateGhazalForm({
                     onChange={(e) => setNewLinkTitle(e.target.value)}
                     className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
                   />
-
                   <input
                     type="text"
                     placeholder="Link URL"
@@ -442,7 +615,6 @@ export default function UpdateGhazalForm({
                     onChange={(e) => setNewLinkUrl(e.target.value)}
                     className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
                   />
-
                   <button
                     type="button"
                     onClick={handleAddLink}
@@ -459,7 +631,6 @@ export default function UpdateGhazalForm({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Current Cover Image
                 </label>
-
                 {ghazal.coverImage && (
                   <img
                     src={ghazal.coverImage}
@@ -467,13 +638,11 @@ export default function UpdateGhazalForm({
                     className="w-full h-32 object-cover rounded-lg border border-gray-200 mb-2"
                   />
                 )}
-
                 <label className="cursor-pointer block">
                   <span className="text-sm font-medium text-gray-600 flex items-center gap-2">
                     <PhotoIcon className="w-5 h-5" />
                     Replace Cover Image
                   </span>
-
                   <input
                     type="file"
                     accept="image/*"
@@ -483,7 +652,6 @@ export default function UpdateGhazalForm({
                     className="hidden"
                   />
                 </label>
-
                 {coverImageFile && (
                   <span className="text-xs text-gray-500 mt-1 block">
                     {coverImageFile.name}
@@ -495,13 +663,11 @@ export default function UpdateGhazalForm({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Current Media ({ghazal.media?.length || 0} files)
                 </label>
-
                 <label className="cursor-pointer block">
                   <span className="text-sm font-medium text-gray-600 flex items-center gap-2">
                     <PlusCircleIcon className="w-5 h-5" />
                     Replace All Media (Max 20 files)
                   </span>
-
                   <input
                     type="file"
                     multiple
@@ -512,7 +678,6 @@ export default function UpdateGhazalForm({
                     className="hidden"
                   />
                 </label>
-
                 {mediaFiles.length > 0 && (
                   <span className="text-xs text-gray-500 mt-1 block">
                     {mediaFiles.length} new file(s) selected
@@ -529,7 +694,6 @@ export default function UpdateGhazalForm({
               >
                 Cancel
               </button>
-
               <button
                 type="submit"
                 disabled={loading}

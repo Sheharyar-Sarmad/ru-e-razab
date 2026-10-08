@@ -1,20 +1,24 @@
 // components/admin/models/UpdateNazmForm.tsx
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { XMarkIcon, PhotoIcon, PlusCircleIcon, TrashIcon } from "@heroicons/react/24/outline";
+import {
+  XMarkIcon,
+  PhotoIcon,
+  PlusCircleIcon,
+} from "@heroicons/react/24/outline";
 import axios from "axios";
 import { toast } from "react-toastify";
 import { COLORS } from "@/lib/colors";
 
-interface Shair {
-  lines: string[];
-}
+// ---------- Constants ----------
+const MAX_LINES = 100;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
 
-interface Band {
-  shairs: Shair[];
-}
+// Fixed takhallus for Azad Nazm
+const FIXED_TAKHALLUS = "رزب تبریز";
 
 interface LinkType {
   title: string;
@@ -26,7 +30,7 @@ interface NazmData {
   _id: string;
   unwan: string;
   takhallus: string;
-  content: Band[];
+  content: string[]; // Azad Nazm — flat array of lines
   category: string[];
   coverImage: string;
   coverImageMetadata?: Record<string, unknown>;
@@ -46,10 +50,6 @@ interface UpdateNazmFormProps {
   onUpdate: () => void;
 }
 
-const createEmptyBand = (): Band => ({
-  shairs: [{ lines: ["", ""] }, { lines: ["", ""] }],
-});
-
 const getErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as { message?: string } | undefined;
@@ -62,14 +62,25 @@ const getErrorMessage = (err: unknown): string => {
 const successToastStyle = { background: "#2B4735", color: "#FFF3EF" };
 const errorToastStyle = { background: "#4A2B2B", color: "#FFF3EF" };
 
-export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: UpdateNazmFormProps) {
+export default function UpdateNazmForm({
+  nazm,
+  isOpen,
+  onClose,
+  onUpdate,
+}: UpdateNazmFormProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // Form fields
   const [unwan, setUnwan] = useState<string>("");
-  const [takhallus, setTakhallus] = useState<string>("");
-  const [bands, setBands] = useState<Band[]>([createEmptyBand()]);
+  // Takhallus is fixed; we still keep it in state so we can send it in the payload
+  const [takhallus] = useState<string>(FIXED_TAKHALLUS);
+
+  // Azad Nazm — raw textarea holds what user is typing
+  const [contentText, setContentText] = useState<string>("");
+  // Parsed/validated lines actually sent to the API
+  const [lines, setLines] = useState<string[]>([]);
+
   const [categories, setCategories] = useState<string>("");
   const [metaTitle, setMetaTitle] = useState<string>("");
   const [metaDescription, setMetaDescription] = useState<string>("");
@@ -85,76 +96,69 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
   useEffect(() => {
     if (nazm && isOpen) {
       setUnwan(nazm.unwan);
-      setTakhallus(nazm.takhallus);
-      setBands(
-        nazm.content && Array.isArray(nazm.content) && nazm.content.length > 0
-          ? nazm.content
-          : [createEmptyBand()]
-      );
+
+      // Accept both shapes defensively: flat string[] OR old Band[] (flattened)
+      const flatLines: string[] = Array.isArray(nazm.content)
+        ? (nazm.content as unknown[]).flatMap((item) => {
+            if (typeof item === "string") return [item];
+            // Legacy Band shape: { shairs: [{ lines: [..] }, ...] }
+            const band = item as { shairs?: { lines?: string[] }[] };
+            if (band?.shairs && Array.isArray(band.shairs)) {
+              return band.shairs.flatMap((s) =>
+                Array.isArray(s?.lines) ? s.lines : []
+              );
+            }
+            return [];
+          })
+        : [];
+
+      setLines(flatLines);
+      setContentText(flatLines.join("\n"));
+
       setCategories((nazm.category || []).join(", "));
       setMetaTitle(nazm.metaTitle || "");
       setMetaDescription(nazm.metaDescription || "");
       setFeatured(nazm.featured || false);
       setLinks(nazm.links || []);
-      setPublishedAt(nazm.publishedAt ? new Date(nazm.publishedAt).toISOString().split("T")[0] : "");
+      setPublishedAt(
+        nazm.publishedAt
+          ? new Date(nazm.publishedAt).toISOString().split("T")[0]
+          : ""
+      );
       setCoverImageFile(null);
       setMediaFiles([]);
       setError(null);
     }
   }, [nazm, isOpen]);
 
-  // ---------- Band & Shair handlers ----------
-  const addBand = () => {
-    setBands((prev) => [...prev, createEmptyBand()]);
+  // ---------- Line handler (auto line-break on newline) ----------
+  const handleContentChange = (text: string) => {
+    setContentText(text);
+    const parsed = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, MAX_LINES);
+    setLines(parsed);
   };
 
-  const removeBand = (index: number) => {
-    setBands((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
-  };
+  // Live preview list (only first MAX_LINES kept)
+  const parsedPreview = useMemo(() => {
+    return contentText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }, [contentText]);
 
-  const addShair = (bandIndex: number) => {
-    setBands((prev) =>
-      prev.map((band, i) =>
-        i === bandIndex ? { ...band, shairs: [...band.shairs, { lines: ["", ""] }] } : band
-      )
-    );
-  };
-
-  const removeShair = (bandIndex: number, shairIndex: number) => {
-    setBands((prev) =>
-      prev.map((band, i) => {
-        if (i !== bandIndex || band.shairs.length <= 1) return band;
-        return { ...band, shairs: band.shairs.filter((_, si) => si !== shairIndex) };
-      })
-    );
-  };
-
-  const handleShairChange = (
-    bandIndex: number,
-    shairIndex: number,
-    lineIndex: number,
-    value: string
-  ) => {
-    setBands((prev) =>
-      prev.map((band, bi) => {
-        if (bi !== bandIndex) return band;
-        return {
-          ...band,
-          shairs: band.shairs.map((shair, si) => {
-            if (si !== shairIndex) return shair;
-            const newLines = [...shair.lines];
-            newLines[lineIndex] = value;
-            return { ...shair, lines: newLines };
-          }),
-        };
-      })
-    );
-  };
+  const isTruncated = parsedPreview.length > MAX_LINES;
 
   // ---------- Link handlers ----------
   const handleAddLink = () => {
     if (newLinkTitle.trim() && newLinkUrl.trim()) {
-      setLinks((prev) => [...prev, { title: newLinkTitle.trim(), url: newLinkUrl.trim() }]);
+      setLinks((prev) => [
+        ...prev,
+        { title: newLinkTitle.trim(), url: newLinkUrl.trim() },
+      ]);
       setNewLinkTitle("");
       setNewLinkUrl("");
     }
@@ -169,17 +173,34 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
     e.preventDefault();
     if (!nazm) return;
 
+    // Client-side guard (mirror of server rules)
+    if (lines.length < 1 || lines.length > MAX_LINES) {
+      const msg = `Content must have between 1 and ${MAX_LINES} lines`;
+      setError(msg);
+      toast.error(msg, { style: errorToastStyle });
+      return;
+    }
+    for (let i = 0; i < lines.length; i++) {
+      const len = lines[i].trim().length;
+      if (len < MIN_LINE_LENGTH || len > MAX_LINE_LENGTH) {
+        const msg = `Line ${i + 1} must be between ${MIN_LINE_LENGTH} and ${MAX_LINE_LENGTH} characters`;
+        setError(msg);
+        toast.error(msg, { style: errorToastStyle });
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const formData = new FormData();
       formData.append("unwan", unwan);
-      formData.append("takhallus", takhallus);
-      formData.append("content", JSON.stringify(bands));
+      formData.append("takhallus", takhallus); // fixed رزب تبریز
+      formData.append("content", JSON.stringify(lines)); // flat string[]
       formData.append(
         "categories",
-        JSON.stringify(categories.split(",").map((c) => c.trim()))
+        JSON.stringify(categories.split(",").map((c) => c.trim()).filter(Boolean))
       );
       formData.append("metaTitle", metaTitle);
       formData.append("metaDescription", metaDescription);
@@ -193,7 +214,10 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
       const response = await axios.patch<{ success: boolean; message?: string }>(
         `/api/admin/dashboard/tarmeem/nazm/${nazm.slug}`,
         formData,
-        { headers: { "Content-Type": "multipart/form-data" }, withCredentials: true }
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true,
+        }
       );
 
       if (response.data.success) {
@@ -205,16 +229,12 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
       } else {
         const msg = response.data.message || "Failed to update nazm";
         setError(msg);
-        toast.error(msg, {
-          style: errorToastStyle,
-        });
+        toast.error(msg, { style: errorToastStyle });
       }
     } catch (err: unknown) {
       const msg = getErrorMessage(err);
       setError(msg);
-      toast.error(msg, {
-        style: errorToastStyle,
-      });
+      toast.error(msg, { style: errorToastStyle });
     } finally {
       setLoading(false);
     }
@@ -239,8 +259,11 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
             className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
           >
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h2 className="text-xl font-bold" style={{ color: COLORS.deepForest }}>
-                Update Nazm
+              <h2
+                className="text-xl font-bold"
+                style={{ color: COLORS.deepForest }}
+              >
+                Update Nazm (آزاد نظم)
               </h2>
               <button
                 type="button"
@@ -251,7 +274,10 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+            <form
+              onSubmit={handleSubmit}
+              className="flex-1 overflow-y-auto p-6 space-y-6"
+            >
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
                   {error}
@@ -274,20 +300,26 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Takhallus <span className="text-red-500">*</span>
+                    Takhallus
                   </label>
                   <input
                     type="text"
                     value={takhallus}
-                    onChange={(e) => setTakhallus(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none opacity-90 cursor-not-allowed"
+                    style={{
+                      background: `${COLORS.warmWhite}80`,
+                      color: COLORS.deepForest,
+                    }}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Published Date</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Published Date
+                </label>
                 <input
                   type="date"
                   value={publishedAt}
@@ -296,68 +328,100 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                 />
               </div>
 
-              {/* Content */}
+              {/* Content — Azad Nazm */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Content (Bands & Shairs) <span className="text-red-500">*</span>
-                </label>
-                {bands.map((band, bandIndex) => (
-                  <div key={bandIndex} className="p-4 mb-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-gray-600">Band #{bandIndex + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeBand(bandIndex)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                        disabled={bands.length <= 1}
-                      >
-                        Remove Band
-                      </button>
-                    </div>
-                    {band.shairs.map((shair, shairIndex) => (
-                      <div key={shairIndex} className="flex gap-2 items-center mb-2">
-                        <span className="text-xs text-gray-400 w-6">S{shairIndex + 1}</span>
-                        <input
-                          type="text"
-                          placeholder="First line"
-                          value={shair.lines[0] || ""}
-                          onChange={(e) => handleShairChange(bandIndex, shairIndex, 0, e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Second line"
-                          value={shair.lines[1] || ""}
-                          onChange={(e) => handleShairChange(bandIndex, shairIndex, 1, e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-emerald-500 outline-none text-sm"
-                        />
-                        {band.shairs.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeShair(bandIndex, shairIndex)}
-                            className="text-red-400 hover:text-red-600"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Content (Lines) <span className="text-red-500">*</span>{" "}
+                    (1-{MAX_LINES})
+                  </label>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{
+                      background: `${COLORS.deepForest}15`,
+                      color: COLORS.deepForest,
+                    }}
+                  >
+                    آزاد نظم ⭐
+                  </span>
+                </div>
+
+                <p className="text-xs text-gray-500 mb-2">
+                  Paste the entire nazm — one misra per line. Line breaks happen
+                  automatically. (Max {MAX_LINES} lines, each 2–300 chars)
+                </p>
+
+                <textarea
+                  value={contentText}
+                  onChange={(e) => handleContentChange(e.target.value)}
+                  rows={16}
+                  dir="rtl"
+                  placeholder={
+                    "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n...\n(ہر نئی سطر = نیا مصرع)"
+                  }
+                  className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
+                  style={{
+                    borderColor: error ? "#ef4444" : `${COLORS.deepForest}40`,
+                    background: "#FFFFFF",
+                  }}
+                />
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <span className="text-gray-600">
+                      {lines.length} line{lines.length === 1 ? "" : "s"}
+                    </span>
+                    {isTruncated && (
+                      <span className="mr-3 text-red-500">
+                        ⚠ Only first {MAX_LINES} lines will be saved (
+                        {parsedPreview.length - MAX_LINES} dropped)
+                      </span>
+                    )}
+                  </div>
+                  {contentText && (
                     <button
                       type="button"
-                      onClick={() => addShair(bandIndex)}
-                      className="text-sm text-emerald-600 hover:text-emerald-700 flex items-center gap-1 mt-1"
+                      onClick={() => {
+                        setContentText("");
+                        setLines([]);
+                      }}
+                      className="text-xs text-red-500 hover:text-red-700"
                     >
-                      <PlusCircleIcon className="w-4 h-4" /> Add Shair
+                      Clear
                     </button>
+                  )}
+                </div>
+
+                {/* Line-by-line preview */}
+                {parsedPreview.length > 0 && (
+                  <div
+                    className="mt-3 max-h-64 overflow-y-auto rounded-lg border p-3"
+                    style={{
+                      borderColor: `${COLORS.deepForest}20`,
+                      background: `${COLORS.warmWhite}40`,
+                    }}
+                  >
+                    <p
+                      className="text-xs mb-2 font-medium"
+                      style={{ color: COLORS.deepForest }}
+                    >
+                      Preview ({Math.min(parsedPreview.length, MAX_LINES)} lines)
+                    </p>
+                    <ol className="space-y-1 font-urdu leading-[2] text-sm">
+                      {parsedPreview.slice(0, MAX_LINES).map((line, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span
+                            className="text-xs shrink-0 w-8 text-left"
+                            style={{ color: COLORS.tataBlue }}
+                          >
+                            {i + 1}.
+                          </span>
+                          <span className="flex-1">{line}</span>
+                        </li>
+                      ))}
+                    </ol>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addBand}
-                  className="text-sm text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
-                >
-                  <PlusCircleIcon className="w-4 h-4" /> Add Band
-                </button>
+                )}
               </div>
 
               {/* Categories */}
@@ -377,7 +441,9 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
 
               {/* Featured */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Featured</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Featured
+                </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -385,14 +451,18 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                     onChange={(e) => setFeatured(e.target.checked)}
                     className="w-4 h-4 text-emerald-600 rounded"
                   />
-                  <span className="text-sm text-gray-600">Mark as Featured</span>
+                  <span className="text-sm text-gray-600">
+                    Mark as Featured
+                  </span>
                 </label>
               </div>
 
               {/* SEO */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Meta Title (SEO)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Meta Title (SEO)
+                  </label>
                   <input
                     type="text"
                     value={metaTitle}
@@ -402,7 +472,9 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Meta Description (SEO)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Meta Description (SEO)
+                  </label>
                   <input
                     type="text"
                     value={metaDescription}
@@ -415,12 +487,21 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
 
               {/* Links */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">External Links</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  External Links
+                </label>
                 <div className="space-y-2">
                   {links.map((link, index) => (
-                    <div key={index} className="flex gap-2 items-center text-sm">
-                      <span className="flex-1 font-medium text-gray-700">{link.title}</span>
-                      <span className="flex-1 text-gray-500 truncate">{link.url}</span>
+                    <div
+                      key={index}
+                      className="flex gap-2 items-center text-sm"
+                    >
+                      <span className="flex-1 font-medium text-gray-700">
+                        {link.title}
+                      </span>
+                      <span className="flex-1 text-gray-500 truncate">
+                        {link.url}
+                      </span>
                       <button
                         type="button"
                         onClick={() => handleRemoveLink(index)}
@@ -459,7 +540,9 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
               {/* Media */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Current Cover Image</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Current Cover Image
+                  </label>
                   {nazm.coverImage && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -475,12 +558,16 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => setCoverImageFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) =>
+                        setCoverImageFile(e.target.files?.[0] ?? null)
+                      }
                       className="hidden"
                     />
                   </label>
                   {coverImageFile && (
-                    <span className="text-xs text-gray-500 mt-1 block">{coverImageFile.name}</span>
+                    <span className="text-xs text-gray-500 mt-1 block">
+                      {coverImageFile.name}
+                    </span>
                   )}
                 </div>
                 <div>
@@ -489,13 +576,16 @@ export default function UpdateNazmForm({ nazm, isOpen, onClose, onUpdate }: Upda
                   </label>
                   <label className="cursor-pointer block">
                     <span className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                      <PlusCircleIcon className="w-5 h-5" /> Add / Replace Media (Max 20 files)
+                      <PlusCircleIcon className="w-5 h-5" /> Add / Replace Media
+                      (Max 20 files)
                     </span>
                     <input
                       type="file"
                       multiple
                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
-                      onChange={(e) => setMediaFiles(Array.from(e.target.files ?? []))}
+                      onChange={(e) =>
+                        setMediaFiles(Array.from(e.target.files ?? []))
+                      }
                       className="hidden"
                     />
                   </label>

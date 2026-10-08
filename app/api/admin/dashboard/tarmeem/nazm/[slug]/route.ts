@@ -7,6 +7,11 @@ import { NextResponse, NextRequest } from "next/server";
 import { uploadToCloudinary } from "@/middlewares/app/upload.images";
 import cloudinary from "@/config/cloudinary.config";
 
+// Azad Nazm limits
+const MAX_LINES = 100;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
+
 // Helper: Delete single file from Cloudinary
 const deleteFromCloudinary = async (publicId: string): Promise<boolean> => {
   try {
@@ -109,30 +114,34 @@ export async function PATCH(
       if (unwan) updateData.unwan = unwan;
       if (takhallus) updateData.takhallus = takhallus;
 
-      // Content
+      // Content — Azad Nazm: flat array of lines (misra), 1..100 lines, 2..300 chars
       if (contentRaw) {
         try {
           const content = JSON.parse(contentRaw);
-          // Validate content structure (bands, shairs, lines)
-          if (!Array.isArray(content) || content.length < 1 || content.length > 6) {
-            throw new Error("Content must be an array with 1-6 bands");
+
+          if (
+            !Array.isArray(content) ||
+            content.length < 1 ||
+            content.length > MAX_LINES
+          ) {
+            throw new Error(`Content must be an array with 1-${MAX_LINES} lines`);
           }
-          for (const band of content) {
-            if (!band.shairs || !Array.isArray(band.shairs) || band.shairs.length !== 2) {
-              throw new Error("Each band must contain exactly 2 shairs");
+
+          for (let i = 0; i < content.length; i++) {
+            const line = content[i];
+            if (typeof line !== "string") {
+              throw new Error(`Line ${i + 1} must be a string`);
             }
-            for (const shair of band.shairs) {
-              if (!shair.lines || !Array.isArray(shair.lines) || shair.lines.length !== 2) {
-                throw new Error("Each shair must have exactly 2 lines");
-              }
-              for (const line of shair.lines) {
-                if (typeof line !== "string" || line.length < 2 || line.length > 300) {
-                  throw new Error("Each line must be between 2 and 300 characters");
-                }
-              }
+            const len = line.trim().length;
+            if (len < MIN_LINE_LENGTH || len > MAX_LINE_LENGTH) {
+              throw new Error(
+                `Line ${i + 1} must be between ${MIN_LINE_LENGTH} and ${MAX_LINE_LENGTH} characters`
+              );
             }
           }
-          updateData.content = content;
+
+          // store trimmed lines
+          updateData.content = (content as string[]).map((l) => l.trim());
         } catch (err: any) {
           return NextResponse.json(
             {
@@ -151,7 +160,11 @@ export async function PATCH(
       if (categoriesRaw) {
         try {
           const categories = JSON.parse(categoriesRaw);
-          if (!Array.isArray(categories) || categories.length === 0 || categories.length > 10) {
+          if (
+            !Array.isArray(categories) ||
+            categories.length === 0 ||
+            categories.length > 10
+          ) {
             throw new Error("Categories must be an array with 1-10 items");
           }
           updateData.category = categories;
@@ -224,8 +237,16 @@ export async function PATCH(
             if (!Array.isArray(links) || links.length > 5) {
               throw new Error("Links must be an array with maximum 5 items");
             }
-            const linkTypes = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
-            const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+            const linkTypes = [
+              "spotify",
+              "youtube",
+              "wikipedia",
+              "website",
+              "social",
+              "other",
+            ];
+            const urlRegex =
+              /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
             for (const link of links) {
               if (!link.title || !link.url) {
                 throw new Error("Each link must have a title and URL");
@@ -280,7 +301,13 @@ export async function PATCH(
       // --- Handle cover image upload ---
       if (coverImageFile && coverImageFile.size > 0) {
         const MAX_FILE_SIZE = 5 * 1024 * 1024;
-        const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif"];
+        const ALLOWED_TYPES = [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "image/jfif",
+        ];
         if (coverImageFile.size > MAX_FILE_SIZE) {
           return NextResponse.json(
             {
@@ -297,7 +324,8 @@ export async function PATCH(
           return NextResponse.json(
             {
               success: false,
-              message: "Invalid file type for cover image. Allowed: JPEG, PNG, WEBP, GIF",
+              message:
+                "Invalid file type for cover image. Allowed: JPEG, PNG, WEBP, GIF",
               data: null,
               err: "INVALID_FILE_TYPE",
               status: HTTP_STATUS.BAD_REQUEST,
@@ -335,7 +363,19 @@ export async function PATCH(
       // --- Handle media files upload ---
       if (mediaFiles && mediaFiles.length > 0) {
         const MAX_MEDIA_SIZE = 10 * 1024 * 1024; // 10MB per file
-        const ALLOWED_MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "audio/mpeg", "audio/wav", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+        const ALLOWED_MEDIA_TYPES = [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "video/mp4",
+          "video/webm",
+          "audio/mpeg",
+          "audio/wav",
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ];
         for (const file of mediaFiles) {
           if (file.size > MAX_MEDIA_SIZE) {
             return NextResponse.json(
@@ -389,9 +429,58 @@ export async function PATCH(
         const body = await request.json();
         // Remove readonly fields
         const { _id, slug: _, createdAt, updatedAt, __v, ...cleanData } = body;
+
+        // If content is present in JSON, validate as Azad Nazm flat string[]
+        if (cleanData.content !== undefined) {
+          const content = cleanData.content;
+          if (
+            !Array.isArray(content) ||
+            content.length < 1 ||
+            content.length > MAX_LINES
+          ) {
+            return NextResponse.json(
+              {
+                success: false,
+                message: `Content must be an array with 1-${MAX_LINES} lines`,
+                data: null,
+                err: "INVALID_CONTENT",
+                status: HTTP_STATUS.BAD_REQUEST,
+              },
+              { status: HTTP_STATUS.BAD_REQUEST }
+            );
+          }
+          for (let i = 0; i < content.length; i++) {
+            const line = content[i];
+            if (typeof line !== "string") {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: `Line ${i + 1} must be a string`,
+                  data: null,
+                  err: "INVALID_CONTENT",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+            const len = line.trim().length;
+            if (len < MIN_LINE_LENGTH || len > MAX_LINE_LENGTH) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  message: `Line ${i + 1} must be between ${MIN_LINE_LENGTH} and ${MAX_LINE_LENGTH} characters`,
+                  data: null,
+                  err: "INVALID_CONTENT",
+                  status: HTTP_STATUS.BAD_REQUEST,
+                },
+                { status: HTTP_STATUS.BAD_REQUEST }
+              );
+            }
+          }
+          cleanData.content = (content as string[]).map((l) => l.trim());
+        }
+
         updateData = cleanData;
-        // Additional validation for meta and links (same as above)
-        // (We'll keep it concise; you can add similar validations if needed)
       } catch (error) {
         return NextResponse.json(
           {
@@ -406,7 +495,11 @@ export async function PATCH(
       }
     }
 
-    if (Object.keys(updateData).length === 0 && mediaFilesToDelete.length === 0 && newMediaUrls.length === 0) {
+    if (
+      Object.keys(updateData).length === 0 &&
+      mediaFilesToDelete.length === 0 &&
+      newMediaUrls.length === 0
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -426,8 +519,8 @@ export async function PATCH(
       const remainingMedia = existingMedia.filter(
         (m: any) => !mediaFilesToDelete.includes(m._id.toString())
       );
-      const toRemove = existingMedia.filter(
-        (m: any) => mediaFilesToDelete.includes(m._id.toString())
+      const toRemove = existingMedia.filter((m: any) =>
+        mediaFilesToDelete.includes(m._id.toString())
       );
       // Delete from Cloudinary
       for (const media of toRemove) {
@@ -444,9 +537,13 @@ export async function PATCH(
       const newMediaObjects = newMediaUrls.map((item) => ({
         url: item.url,
         publicId: item.publicId,
-        type: item.file.type.startsWith("image/") ? "image" :
-              item.file.type.startsWith("video/") ? "video" :
-              item.file.type.startsWith("audio/") ? "audio" : "document",
+        type: item.file.type.startsWith("image/")
+          ? "image"
+          : item.file.type.startsWith("video/")
+          ? "video"
+          : item.file.type.startsWith("audio/")
+          ? "audio"
+          : "document",
         mimeType: item.file.type,
         size: item.file.size,
         filename: item.file.name,

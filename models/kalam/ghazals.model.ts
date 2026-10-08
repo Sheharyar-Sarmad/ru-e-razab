@@ -266,18 +266,17 @@ const GhazalSchema = new Schema<Ghazal>(
       trim: true,
     },
 
-    content: {
-      type: [ShairSchema],
-      required: true,
-      validate: {
-        validator: (shairs: Shair[]) =>
-          shairs.length >= 1 &&
-          shairs.length <= 10,
-        message:
-          "A Ghazal must contain between 1 and 10 shairs",
-      },
-    },
-
+content: {
+  type: [ShairSchema],
+  required: true,
+  validate: {
+    validator: (shairs: Shair[]) =>
+      shairs.length >= 1 &&
+      shairs.length <= 20,     // ← was 10
+    message:
+      "A Ghazal must contain between 1 and 20 shairs",   // ← was 10
+  },
+},
     category: {
       type: [String],
       required: true,

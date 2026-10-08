@@ -86,10 +86,40 @@ function detectMediaType(mimeType: string): MediaKind {
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
 const MAX_COVER_SIZE = 5 * 1024 * 1024;
 
+const MAX_LINES = 100;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
+
 const ALLOWED_MEDIA: Record<MediaKind, string[]> = {
-  image: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif", "image/svg+xml", "image/bmp", "image/tiff"],
-  video: ["video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/3gpp", "video/mpeg"],
-  audio: ["audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/aac", "audio/flac", "audio/mp4"],
+  image: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/jfif",
+    "image/svg+xml",
+    "image/bmp",
+    "image/tiff",
+  ],
+  video: [
+    "video/mp4",
+    "video/webm",
+    "video/ogg",
+    "video/quicktime",
+    "video/x-msvideo",
+    "video/x-matroska",
+    "video/3gpp",
+    "video/mpeg",
+  ],
+  audio: [
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "audio/webm",
+    "audio/aac",
+    "audio/flac",
+    "audio/mp4",
+  ],
   document: [
     "application/pdf",
     "application/msword",
@@ -103,7 +133,13 @@ const ALLOWED_MEDIA: Record<MediaKind, string[]> = {
   ],
 };
 
-const COVER_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jfif"];
+const COVER_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/jfif",
+];
 const LINK_TYPES = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
 
 function validateMedia(file: File): string | null {
@@ -115,7 +151,11 @@ function validateMedia(file: File): string | null {
   return null;
 }
 
-async function processFile(file: File, folder: string, alt?: string): Promise<UploadedFile> {
+async function processFile(
+  file: File,
+  folder: string,
+  alt?: string
+): Promise<UploadedFile> {
   const problem = validateMedia(file);
   if (problem) throw new Error(problem);
 
@@ -128,17 +168,26 @@ async function processFile(file: File, folder: string, alt?: string): Promise<Up
     .slice(0, 50);
   const publicId = `nazm_${Date.now()}_${baseName || "file"}`;
 
-  // Keep options minimal. Delivery transformations (f_auto, q_auto) belong in the URL, not the upload call.
   const resource_type =
-    mediaType === "image" ? "image" : mediaType === "video" || mediaType === "audio" ? "video" : "raw";
+    mediaType === "image"
+      ? "image"
+      : mediaType === "video" || mediaType === "audio"
+      ? "video"
+      : "raw";
 
   const result = normalizeUpload(
     await uploadToCloudinary(buffer, folder, {
       resource_type,
       public_id: publicId,
       overwrite: false,
-      ...(mediaType === "image" && file.type !== "image/svg+xml" && file.type !== "image/gif"
-        ? { transformation: [{ width: 1600, height: 1600, crop: "limit", quality: "auto" }] }
+      ...(mediaType === "image" &&
+      file.type !== "image/svg+xml" &&
+      file.type !== "image/gif"
+        ? {
+            transformation: [
+              { width: 1600, height: 1600, crop: "limit", quality: "auto" },
+            ],
+          }
         : {}),
     })
   );
@@ -181,13 +230,21 @@ export async function POST(request: NextRequest) {
       await ConnectDB(EnvSecrets.mongoUri as string);
     } catch (error) {
       console.error("DB connection error:", error);
-      return fail(`Database connection failed: ${errMsg(error)}`, "DB_CONNECTION_FAILED", HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      return fail(
+        `Database connection failed: ${errMsg(error)}`,
+        "DB_CONNECTION_FAILED",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
     }
 
     // 2. Parse form
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
-      return fail("Content-Type must be multipart/form-data", "INVALID_CONTENT_TYPE", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        "Content-Type must be multipart/form-data",
+        "INVALID_CONTENT_TYPE",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
     let formData: globalThis.FormData;
@@ -195,7 +252,11 @@ export async function POST(request: NextRequest) {
       formData = await request.formData();
     } catch (error) {
       console.error("formData parse error:", error);
-      return fail(`Could not read the upload: ${errMsg(error)}`, "FORM_PARSE_FAILED", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        `Could not read the upload: ${errMsg(error)}`,
+        "FORM_PARSE_FAILED",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
     const unwan = (formData.get("unwan") as string | null)?.trim() || "";
@@ -204,55 +265,92 @@ export async function POST(request: NextRequest) {
     const categoriesRaw = formData.get("categories") as string | null;
     const coverEntry = formData.get("coverImage");
     const metaTitle = (formData.get("metaTitle") as string | null)?.trim() || "";
-    const metaDescription = (formData.get("metaDescription") as string | null)?.trim() || "";
+    const metaDescription =
+      (formData.get("metaDescription") as string | null)?.trim() || "";
     const linksRaw = formData.get("links") as string | null;
     const mediaFiles = formData.getAll("media").filter(isFile);
     const featured = formData.get("featured") === "true";
 
     // 3. Validation
-    if (!unwan) return fail("Unwan (title) is required", "UNWAN_REQUIRED", HTTP_STATUS.BAD_REQUEST);
-    if (!takhallus) return fail("Takhallus is required", "TAKHALLUS_REQUIRED", HTTP_STATUS.BAD_REQUEST);
-    if (!contentRaw) return fail("Content is required", "CONTENT_REQUIRED", HTTP_STATUS.BAD_REQUEST);
-    if (!categoriesRaw) return fail("Categories are required", "CATEGORIES_REQUIRED", HTTP_STATUS.BAD_REQUEST);
-    if (!isFile(coverEntry)) return fail("Cover image is required", "COVER_IMAGE_REQUIRED", HTTP_STATUS.BAD_REQUEST);
+    if (!unwan)
+      return fail("Unwan (title) is required", "UNWAN_REQUIRED", HTTP_STATUS.BAD_REQUEST);
+    if (!takhallus)
+      return fail("Takhallus is required", "TAKHALLUS_REQUIRED", HTTP_STATUS.BAD_REQUEST);
+    if (!contentRaw)
+      return fail("Content is required", "CONTENT_REQUIRED", HTTP_STATUS.BAD_REQUEST);
+    if (!categoriesRaw)
+      return fail(
+        "Categories are required",
+        "CATEGORIES_REQUIRED",
+        HTTP_STATUS.BAD_REQUEST
+      );
+    if (!isFile(coverEntry))
+      return fail(
+        "Cover image is required",
+        "COVER_IMAGE_REQUIRED",
+        HTTP_STATUS.BAD_REQUEST
+      );
     const coverImageFile: File = coverEntry;
 
-    let content: { shairs: { lines: string[] }[] }[];
+    let content: string[]; // ← Azad Nazm: flat array of lines
     let categories: string[];
     try {
       content = JSON.parse(contentRaw);
       categories = JSON.parse(categoriesRaw);
     } catch {
-      return fail("Invalid JSON format for content or categories", "INVALID_JSON_FORMAT", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        "Invalid JSON format for content or categories",
+        "INVALID_JSON_FORMAT",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
-    if (!Array.isArray(content) || content.length < 1 || content.length > 6) {
-      return fail("Content must be an array with 1-6 bands", "INVALID_CONTENT", HTTP_STATUS.BAD_REQUEST);
+    // Azad Nazm: 1..100 lines, each 2..300 chars
+    if (!Array.isArray(content) || content.length < 1 || content.length > MAX_LINES) {
+      return fail(
+        `Content must be an array with 1-${MAX_LINES} lines`,
+        "INVALID_CONTENT",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
-    for (const band of content) {
-      if (!band?.shairs || !Array.isArray(band.shairs) || band.shairs.length !== 2) {
-        return fail("Each band must contain exactly 2 shairs", "INVALID_BAND", HTTP_STATUS.BAD_REQUEST);
-      }
-      for (const shair of band.shairs) {
-        if (!shair?.lines || !Array.isArray(shair.lines) || shair.lines.length !== 2) {
-          return fail("Each shair must have exactly 2 lines", "INVALID_SHAIR", HTTP_STATUS.BAD_REQUEST);
-        }
-        for (const line of shair.lines) {
-          const len = typeof line === "string" ? line.trim().length : 0;
-          if (len < 2 || len > 300) {
-            return fail("Each line must be between 2 and 300 characters", "INVALID_LINE_LENGTH", HTTP_STATUS.BAD_REQUEST);
-          }
-        }
+    for (let i = 0; i < content.length; i++) {
+      const line = content[i];
+      const len = typeof line === "string" ? line.trim().length : 0;
+      if (len < MIN_LINE_LENGTH || len > MAX_LINE_LENGTH) {
+        return fail(
+          `Line ${i + 1} must be between ${MIN_LINE_LENGTH} and ${MAX_LINE_LENGTH} characters`,
+          "INVALID_LINE_LENGTH",
+          HTTP_STATUS.BAD_REQUEST
+        );
       }
     }
 
     if (!Array.isArray(categories) || categories.length === 0 || categories.length > 10) {
-      return fail("Categories must be an array with 1-10 items", "INVALID_CATEGORIES", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        "Categories must be an array with 1-10 items",
+        "INVALID_CATEGORIES",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
-    if (metaTitle.length > 60) return fail("Meta title cannot exceed 60 characters", "META_TITLE_TOO_LONG", HTTP_STATUS.BAD_REQUEST);
-    if (metaDescription.length > 160) return fail("Meta description cannot exceed 160 characters", "META_DESCRIPTION_TOO_LONG", HTTP_STATUS.BAD_REQUEST);
-    if (mediaFiles.length > 20) return fail("Maximum 20 media files allowed", "MEDIA_LIMIT_EXCEEDED", HTTP_STATUS.BAD_REQUEST);
+    if (metaTitle.length > 60)
+      return fail(
+        "Meta title cannot exceed 60 characters",
+        "META_TITLE_TOO_LONG",
+        HTTP_STATUS.BAD_REQUEST
+      );
+    if (metaDescription.length > 160)
+      return fail(
+        "Meta description cannot exceed 160 characters",
+        "META_DESCRIPTION_TOO_LONG",
+        HTTP_STATUS.BAD_REQUEST
+      );
+    if (mediaFiles.length > 20)
+      return fail(
+        "Maximum 20 media files allowed",
+        "MEDIA_LIMIT_EXCEEDED",
+        HTTP_STATUS.BAD_REQUEST
+      );
 
     // Links
     let links: { title: string; url: string; type?: string }[] = [];
@@ -260,34 +358,74 @@ export async function POST(request: NextRequest) {
       try {
         links = JSON.parse(linksRaw);
       } catch {
-        return fail("Invalid JSON format for links", "INVALID_LINKS_JSON", HTTP_STATUS.BAD_REQUEST);
+        return fail(
+          "Invalid JSON format for links",
+          "INVALID_LINKS_JSON",
+          HTTP_STATUS.BAD_REQUEST
+        );
       }
-      if (!Array.isArray(links)) return fail("Links must be an array", "INVALID_LINKS_FORMAT", HTTP_STATUS.BAD_REQUEST);
-      if (links.length > 5) return fail("Maximum 5 links allowed", "LINKS_LIMIT_EXCEEDED", HTTP_STATUS.BAD_REQUEST);
+      if (!Array.isArray(links))
+        return fail("Links must be an array", "INVALID_LINKS_FORMAT", HTTP_STATUS.BAD_REQUEST);
+      if (links.length > 5)
+        return fail(
+          "Maximum 5 links allowed",
+          "LINKS_LIMIT_EXCEEDED",
+          HTTP_STATUS.BAD_REQUEST
+        );
 
       for (const link of links) {
         if (!link?.title || !link?.url) {
-          return fail("Each link must have a title and URL", "INVALID_LINK_MISSING_FIELDS", HTTP_STATUS.BAD_REQUEST);
+          return fail(
+            "Each link must have a title and URL",
+            "INVALID_LINK_MISSING_FIELDS",
+            HTTP_STATUS.BAD_REQUEST
+          );
         }
-        if (link.title.length > 100) return fail("Link title must be 1-100 characters", "INVALID_LINK_TITLE", HTTP_STATUS.BAD_REQUEST);
-        if (link.url.length > 500) return fail("Link URL cannot exceed 500 characters", "INVALID_LINK_URL_LENGTH", HTTP_STATUS.BAD_REQUEST);
+        if (link.title.length > 100)
+          return fail(
+            "Link title must be 1-100 characters",
+            "INVALID_LINK_TITLE",
+            HTTP_STATUS.BAD_REQUEST
+          );
+        if (link.url.length > 500)
+          return fail(
+            "Link URL cannot exceed 500 characters",
+            "INVALID_LINK_URL_LENGTH",
+            HTTP_STATUS.BAD_REQUEST
+          );
         try {
           new URL(link.url);
         } catch {
-          return fail(`Please enter a valid URL for: ${link.title}`, "INVALID_LINK_URL", HTTP_STATUS.BAD_REQUEST);
+          return fail(
+            `Please enter a valid URL for: ${link.title}`,
+            "INVALID_LINK_URL",
+            HTTP_STATUS.BAD_REQUEST
+          );
         }
         if (link.type && !LINK_TYPES.includes(link.type)) {
-          return fail(`Invalid link type. Allowed: ${LINK_TYPES.join(", ")}`, "INVALID_LINK_TYPE", HTTP_STATUS.BAD_REQUEST);
+          return fail(
+            `Invalid link type. Allowed: ${LINK_TYPES.join(", ")}`,
+            "INVALID_LINK_TYPE",
+            HTTP_STATUS.BAD_REQUEST
+          );
         }
       }
     }
 
     // Cover validation
     if (coverImageFile.size > MAX_COVER_SIZE) {
-      return fail("Cover image exceeds 5MB limit", "FILE_TOO_LARGE", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        "Cover image exceeds 5MB limit",
+        "FILE_TOO_LARGE",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
     if (!COVER_TYPES.includes(coverImageFile.type)) {
-      return fail("Invalid cover type. Allowed: JPEG, PNG, WEBP, GIF", "INVALID_FILE_TYPE", HTTP_STATUS.BAD_REQUEST);
+      return fail(
+        "Invalid cover type. Allowed: JPEG, PNG, WEBP, GIF",
+        "INVALID_FILE_TYPE",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
     // 4. Upload cover
@@ -300,7 +438,9 @@ export async function POST(request: NextRequest) {
       const cover = normalizeUpload(
         await uploadToCloudinary(coverBuffer, "nazms/covers", {
           resource_type: "image",
-          transformation: [{ width: 1200, height: 1200, crop: "limit", quality: "auto" }],
+          transformation: [
+            { width: 1200, height: 1200, crop: "limit", quality: "auto" },
+          ],
         })
       );
 
@@ -314,7 +454,11 @@ export async function POST(request: NextRequest) {
       };
     } catch (error) {
       console.error("Cover upload error:", error);
-      return fail(`Failed to upload cover image: ${errMsg(error)}`, "COVER_IMAGE_UPLOAD_FAILED", HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      return fail(
+        `Failed to upload cover image: ${errMsg(error)}`,
+        "COVER_IMAGE_UPLOAD_FAILED",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
     }
 
     // 5. Upload media (a failed file never crashes the request)
@@ -324,7 +468,9 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
       try {
-        uploadedMedia.push(await processFile(file, "nazms/media", `Media ${i + 1} for ${takhallus}`));
+        uploadedMedia.push(
+          await processFile(file, "nazms/media", `Media ${i + 1} for ${takhallus}`)
+        );
       } catch (error) {
         console.error(`Failed to upload media ${i + 1} (${file.name}):`, error);
         failedMedia.push({ name: file.name, reason: errMsg(error) });
@@ -335,7 +481,7 @@ export async function POST(request: NextRequest) {
     const nazm = new NazmModel({
       unwan,
       takhallus,
-      content,
+      content, // ← flat string[]
       category: categories,
       coverImage: coverImageUrl,
       coverImageMetadata,
@@ -399,13 +545,25 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof Error) {
       if (error.name === "ValidationError") {
-        return fail(error.message || "Validation error", "VALIDATION_ERROR", HTTP_STATUS.BAD_REQUEST);
+        return fail(
+          error.message || "Validation error",
+          "VALIDATION_ERROR",
+          HTTP_STATUS.BAD_REQUEST
+        );
       }
       if ((error as any).code === 11000) {
-        return fail("Duplicate entry - a nazm with this slug already exists", "DUPLICATE_KEY", HTTP_STATUS.CONFLICT);
+        return fail(
+          "Duplicate entry - a nazm with this slug already exists",
+          "DUPLICATE_KEY",
+          HTTP_STATUS.CONFLICT
+        );
       }
     }
 
-    return fail(errMsg(error) || "Internal Server Error", "INTERNAL_SERVER_ERROR", HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return fail(
+      errMsg(error) || "Internal Server Error",
+      "INTERNAL_SERVER_ERROR",
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    );
   }
 }

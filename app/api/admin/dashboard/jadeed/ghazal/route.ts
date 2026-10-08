@@ -4,13 +4,16 @@ import { ConnectDB } from "@/db/connect.db";
 import { HTTP_STATUS } from "@/lib/http.status.codes";
 import GhazalModel from "@/models/kalam/ghazals.model";
 import { NextResponse, NextRequest } from "next/server";
-import { uploadToCloudinary, CloudinaryUploadOptions } from "@/middlewares/app/upload.images";
+import {
+  uploadToCloudinary,
+  CloudinaryUploadOptions,
+} from "@/middlewares/app/upload.images";
 
-// TYPES 
+// TYPES
 
 interface UploadedFile {
   url: string;
-  type: 'image' | 'video' | 'audio' | 'document';
+  type: "image" | "video" | "audio" | "document";
   mimeType: string;
   size: number;
   filename: string;
@@ -23,36 +26,78 @@ interface UploadedFile {
   metadata?: Record<string, any>;
 }
 
-// HELPER FUNCTIONS 
+// HELPER FUNCTIONS
 
 // Detect file type from MIME type
-function detectMediaType(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  return 'document';
+function detectMediaType(
+  mimeType: string,
+): "image" | "video" | "audio" | "document" {
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  return "document";
 }
 
 // Check if file is allowed
-function isFileAllowed(mimeType: string, size: number): { allowed: boolean; message?: string } {
+function isFileAllowed(
+  mimeType: string,
+  size: number,
+): { allowed: boolean; message?: string } {
   const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-  
+
   if (size > MAX_FILE_SIZE) {
-    return { allowed: false, message: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` };
+    return {
+      allowed: false,
+      message: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit`,
+    };
   }
 
   const ALLOWED_TYPES = {
-    image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/jfif', 'image/svg+xml', 'image/bmp', 'image/tiff'],
-    video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/3gpp', 'video/mpeg'],
-    audio: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/aac', 'audio/flac', 'audio/mp4'],
-    document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
-               'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-               'text/plain', 'text/csv', 'application/json', 'application/xml']
+    image: [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+      "image/jfif",
+      "image/svg+xml",
+      "image/bmp",
+      "image/tiff",
+    ],
+    video: [
+      "video/mp4",
+      "video/webm",
+      "video/ogg",
+      "video/quicktime",
+      "video/x-msvideo",
+      "video/x-matroska",
+      "video/3gpp",
+      "video/mpeg",
+    ],
+    audio: [
+      "audio/mpeg",
+      "audio/ogg",
+      "audio/wav",
+      "audio/webm",
+      "audio/aac",
+      "audio/flac",
+      "audio/mp4",
+    ],
+    document: [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text/plain",
+      "text/csv",
+      "application/json",
+      "application/xml",
+    ],
   };
 
   const type = detectMediaType(mimeType);
   const allowedForType = ALLOWED_TYPES[type] || [];
-  
+
   if (!allowedForType.includes(mimeType)) {
     return { allowed: false, message: `File type ${mimeType} is not allowed` };
   }
@@ -64,7 +109,7 @@ function isFileAllowed(mimeType: string, size: number): { allowed: boolean; mess
 async function processFile(
   file: File,
   folder: string = "ghazals/media",
-  alt?: string
+  alt?: string,
 ): Promise<UploadedFile> {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
@@ -75,85 +120,82 @@ async function processFile(
   // Validate file
   const validation = isFileAllowed(mimeType, fileSize);
   if (!validation.allowed) {
-    throw new Error(validation.message || 'Invalid file');
+    throw new Error(validation.message || "Invalid file");
   }
 
   const mediaType = detectMediaType(mimeType);
   const timestamp = Date.now();
-  const baseName = filename.replace(/\.[^/.]+$/, '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const baseName = filename
+    .replace(/\.[^/.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "_");
   const publicId = `ghazal_${timestamp}_${baseName}`;
 
   // Configure Cloudinary options based on file type
   let uploadOptions: CloudinaryUploadOptions = {
-    resource_type: 'auto',
+    resource_type: "auto",
     public_id: publicId,
     overwrite: false,
   };
 
   // Image specific options
-  if (mediaType === 'image') {
+  if (mediaType === "image") {
     uploadOptions = {
       ...uploadOptions,
-      resource_type: 'image',
-      transformation: [
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' }
-      ],
-      quality: 'auto:good',
+      resource_type: "image",
+      transformation: [{ quality: "auto:good" }, { fetch_format: "auto" }],
+      quality: "auto:good",
     };
     // For large images, generate thumbnail
-    if (fileSize > 5 * 1024 * 1024) { // > 5MB
+    if (fileSize > 5 * 1024 * 1024) {
+      // > 5MB
       uploadOptions.eager = [
-        { width: 400, height: 400, crop: 'fill', format: 'jpg' }
+        { width: 400, height: 400, crop: "fill", format: "jpg" },
       ];
     }
   }
 
   // Video specific options
-  if (mediaType === 'video') {
+  if (mediaType === "video") {
     uploadOptions = {
       ...uploadOptions,
-      resource_type: 'video',
-      transformation: [
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' }
-      ],
+      resource_type: "video",
+      transformation: [{ quality: "auto:good" }, { fetch_format: "auto" }],
       eager: [
-        { width: 400, height: 400, crop: 'fill', format: 'jpg', start_offset: '0' }
+        {
+          width: 400,
+          height: 400,
+          crop: "fill",
+          format: "jpg",
+          start_offset: "0",
+        },
       ],
-      quality: 'auto:good',
+      quality: "auto:good",
     };
   }
 
   // Audio specific options
-  if (mediaType === 'audio') {
+  if (mediaType === "audio") {
     uploadOptions = {
       ...uploadOptions,
-      resource_type: 'video', // Audio is treated as video in Cloudinary
-      transformation: [
-        { quality: 'auto:good' },
-        { format: 'mp3' }
-      ],
+      resource_type: "video", // Audio is treated as video in Cloudinary
+      transformation: [{ quality: "auto:good" }, { format: "mp3" }],
     };
   }
 
   // Document specific options
-  if (mediaType === 'document') {
+  if (mediaType === "document") {
     uploadOptions = {
       ...uploadOptions,
-      resource_type: 'raw',
+      resource_type: "raw",
       eager: [
-        { format: 'jpg', page: '1' } // Generate thumbnail for first page
+        { format: "jpg", page: "1" }, // Generate thumbnail for first page
       ],
     };
   }
 
   // Upload to Cloudinary using the existing middleware
-  const uploadResult = await uploadToCloudinary(
-    buffer,
-    folder,
-    uploadOptions
-  );
+  const uploadResult = await uploadToCloudinary(buffer, folder, uploadOptions);
 
   // Prepare response
   const uploadedFile: UploadedFile = {
@@ -163,21 +205,21 @@ async function processFile(
     size: fileSize,
     filename: filename,
     publicId: uploadResult.publicId,
-    alt: alt || filename.replace(/\.[^/.]+$/, ''),
+    alt: alt || filename.replace(/\.[^/.]+$/, ""),
   };
 
   // Add optional fields based on media type
-  if (mediaType === 'image' || mediaType === 'video') {
+  if (mediaType === "image" || mediaType === "video") {
     uploadedFile.width = uploadResult.width;
     uploadedFile.height = uploadResult.height;
   }
 
-  if (mediaType === 'video' || mediaType === 'audio') {
+  if (mediaType === "video" || mediaType === "audio") {
     uploadedFile.duration = uploadResult.duration;
     uploadedFile.thumbnail = uploadResult.thumbnail;
   }
 
-  if (mediaType === 'document') {
+  if (mediaType === "document") {
     // For documents, use the eager generated thumbnail
     uploadedFile.thumbnail = uploadResult.eager?.[0]?.url;
   }
@@ -196,7 +238,7 @@ async function processFile(
   return uploadedFile;
 }
 
-// MAIN API HANDLER 
+// MAIN API HANDLER
 
 export async function POST(request: NextRequest) {
   try {
@@ -205,7 +247,7 @@ export async function POST(request: NextRequest) {
 
     // Check Content-Type
     const contentType = request.headers.get("content-type") || "";
-    
+
     if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json(
         {
@@ -215,7 +257,7 @@ export async function POST(request: NextRequest) {
           err: "INVALID_CONTENT_TYPE",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -231,9 +273,9 @@ export async function POST(request: NextRequest) {
     const metaDescription = formData.get("metaDescription") as string;
     const linksRaw = formData.get("links") as string;
     const mediaFiles = formData.getAll("media") as File[];
-    const featured = formData.get("featured") === 'true';
+    const featured = formData.get("featured") === "true";
 
-    // VALIDATION 
+    // VALIDATION
 
     // Validate required fields
     if (!takhallus) {
@@ -245,7 +287,7 @@ export async function POST(request: NextRequest) {
           err: "TAKHALLUS_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -258,7 +300,7 @@ export async function POST(request: NextRequest) {
           err: "CONTENT_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -271,7 +313,7 @@ export async function POST(request: NextRequest) {
           err: "CATEGORIES_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -284,7 +326,7 @@ export async function POST(request: NextRequest) {
           err: "COVER_IMAGE_REQUIRED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -304,26 +346,34 @@ export async function POST(request: NextRequest) {
           err: "INVALID_JSON_FORMAT",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
     // Validate content structure
-    if (!Array.isArray(content) || content.length === 0 || content.length > 10) {
+    if (
+      !Array.isArray(content) ||
+      content.length === 0 ||
+      content.length > 20
+    ) {
+      // ← was 10
       return NextResponse.json(
         {
           success: false,
-          message: "Content must be an array with 1-10 shairs",
+          message: "Content must be an array with 1-20 shairs", // ← was 10
           data: null,
           err: "INVALID_CONTENT",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
-
     for (const shair of content) {
-      if (!shair.lines || !Array.isArray(shair.lines) || shair.lines.length !== 2) {
+      if (
+        !shair.lines ||
+        !Array.isArray(shair.lines) ||
+        shair.lines.length !== 2
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -332,7 +382,7 @@ export async function POST(request: NextRequest) {
             err: "INVALID_SHAIR",
             status: HTTP_STATUS.BAD_REQUEST,
           },
-          { status: HTTP_STATUS.BAD_REQUEST }
+          { status: HTTP_STATUS.BAD_REQUEST },
         );
       }
 
@@ -346,14 +396,18 @@ export async function POST(request: NextRequest) {
               err: "INVALID_LINE_LENGTH",
               status: HTTP_STATUS.BAD_REQUEST,
             },
-            { status: HTTP_STATUS.BAD_REQUEST }
+            { status: HTTP_STATUS.BAD_REQUEST },
           );
         }
       }
     }
 
     // Validate categories
-    if (!Array.isArray(categories) || categories.length === 0 || categories.length > 10) {
+    if (
+      !Array.isArray(categories) ||
+      categories.length === 0 ||
+      categories.length > 10
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -362,7 +416,7 @@ export async function POST(request: NextRequest) {
           err: "INVALID_CATEGORIES",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -376,7 +430,7 @@ export async function POST(request: NextRequest) {
           err: "META_TITLE_TOO_LONG",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -390,7 +444,7 @@ export async function POST(request: NextRequest) {
           err: "META_DESCRIPTION_TOO_LONG",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -404,7 +458,7 @@ export async function POST(request: NextRequest) {
           err: "MEDIA_LIMIT_EXCEEDED",
           status: HTTP_STATUS.BAD_REQUEST,
         },
-        { status: HTTP_STATUS.BAD_REQUEST }
+        { status: HTTP_STATUS.BAD_REQUEST },
       );
     }
 
@@ -413,7 +467,7 @@ export async function POST(request: NextRequest) {
     if (linksRaw) {
       try {
         links = JSON.parse(linksRaw);
-        
+
         if (!Array.isArray(links)) {
           return NextResponse.json(
             {
@@ -423,7 +477,7 @@ export async function POST(request: NextRequest) {
               err: "INVALID_LINKS_FORMAT",
               status: HTTP_STATUS.BAD_REQUEST,
             },
-            { status: HTTP_STATUS.BAD_REQUEST }
+            { status: HTTP_STATUS.BAD_REQUEST },
           );
         }
 
@@ -436,12 +490,20 @@ export async function POST(request: NextRequest) {
               err: "LINKS_LIMIT_EXCEEDED",
               status: HTTP_STATUS.BAD_REQUEST,
             },
-            { status: HTTP_STATUS.BAD_REQUEST }
+            { status: HTTP_STATUS.BAD_REQUEST },
           );
         }
 
-        const linkTypes = ["spotify", "youtube", "wikipedia", "website", "social", "other"];
-        const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+        const linkTypes = [
+          "spotify",
+          "youtube",
+          "wikipedia",
+          "website",
+          "social",
+          "other",
+        ];
+        const urlRegex =
+          /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
 
         for (const link of links) {
           if (!link.title || !link.url) {
@@ -453,7 +515,7 @@ export async function POST(request: NextRequest) {
                 err: "INVALID_LINK_MISSING_FIELDS",
                 status: HTTP_STATUS.BAD_REQUEST,
               },
-              { status: HTTP_STATUS.BAD_REQUEST }
+              { status: HTTP_STATUS.BAD_REQUEST },
             );
           }
 
@@ -466,7 +528,7 @@ export async function POST(request: NextRequest) {
                 err: "INVALID_LINK_TITLE",
                 status: HTTP_STATUS.BAD_REQUEST,
               },
-              { status: HTTP_STATUS.BAD_REQUEST }
+              { status: HTTP_STATUS.BAD_REQUEST },
             );
           }
 
@@ -479,7 +541,7 @@ export async function POST(request: NextRequest) {
                 err: "INVALID_LINK_URL_LENGTH",
                 status: HTTP_STATUS.BAD_REQUEST,
               },
-              { status: HTTP_STATUS.BAD_REQUEST }
+              { status: HTTP_STATUS.BAD_REQUEST },
             );
           }
 
@@ -492,7 +554,7 @@ export async function POST(request: NextRequest) {
                 err: "INVALID_LINK_URL",
                 status: HTTP_STATUS.BAD_REQUEST,
               },
-              { status: HTTP_STATUS.BAD_REQUEST }
+              { status: HTTP_STATUS.BAD_REQUEST },
             );
           }
 
@@ -505,7 +567,7 @@ export async function POST(request: NextRequest) {
                 err: "INVALID_LINK_TYPE",
                 status: HTTP_STATUS.BAD_REQUEST,
               },
-              { status: HTTP_STATUS.BAD_REQUEST }
+              { status: HTTP_STATUS.BAD_REQUEST },
             );
           }
         }
@@ -518,12 +580,12 @@ export async function POST(request: NextRequest) {
             err: "INVALID_LINKS_JSON",
             status: HTTP_STATUS.BAD_REQUEST,
           },
-          { status: HTTP_STATUS.BAD_REQUEST }
+          { status: HTTP_STATUS.BAD_REQUEST },
         );
       }
     }
 
-    // UPLOAD FILES USING EXISTING MIDDLEWARE 
+    // UPLOAD FILES USING EXISTING MIDDLEWARE
 
     // Upload cover image
     let coverImageUrl: string;
@@ -533,7 +595,7 @@ export async function POST(request: NextRequest) {
       const coverFile = await processFile(
         coverImageFile,
         "ghazals/covers",
-        `Cover image for ${takhallus}`
+        `Cover image for ${takhallus}`,
       );
       coverImageUrl = coverFile.url;
       coverImageMetadata = {
@@ -549,12 +611,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: error instanceof Error ? error.message : "Failed to upload cover image",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to upload cover image",
           data: null,
           err: "COVER_IMAGE_UPLOAD_FAILED",
           status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
         },
-        { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+        { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
       );
     }
 
@@ -562,15 +627,17 @@ export async function POST(request: NextRequest) {
     let uploadedMedia: UploadedFile[] = [];
     if (mediaFiles.length > 0) {
       console.log(`Processing ${mediaFiles.length} media files...`);
-      
+
       for (let i = 0; i < mediaFiles.length; i++) {
         const file = mediaFiles[i];
         try {
-          console.log(`Uploading media ${i + 1}/${mediaFiles.length}: ${file.name}`);
+          console.log(
+            `Uploading media ${i + 1}/${mediaFiles.length}: ${file.name}`,
+          );
           const mediaFile = await processFile(
             file,
             "ghazals/media",
-            `Media ${i + 1} for ${takhallus}`
+            `Media ${i + 1} for ${takhallus}`,
           );
           uploadedMedia.push(mediaFile);
           console.log(`Media ${i + 1} uploaded successfully:`, mediaFile.url);
@@ -599,11 +666,11 @@ export async function POST(request: NextRequest) {
           err: "DUPLICATE_SLUG",
           status: HTTP_STATUS.CONFLICT,
         },
-        { status: HTTP_STATUS.CONFLICT }
+        { status: HTTP_STATUS.CONFLICT },
       );
     }
 
-    // CREATE GHAZAL 
+    // CREATE GHAZAL
 
     const ghazal = new GhazalModel({
       takhallus,
@@ -624,7 +691,7 @@ export async function POST(request: NextRequest) {
 
     await ghazal.save();
 
-    // RESPONSE 
+    // RESPONSE
 
     return NextResponse.json(
       {
@@ -659,12 +726,11 @@ export async function POST(request: NextRequest) {
         err: null,
         status: HTTP_STATUS.CREATED,
       },
-      { status: HTTP_STATUS.CREATED }
+      { status: HTTP_STATUS.CREATED },
     );
-
   } catch (error) {
     console.error("Jadeed Ghazal Error:", error);
-    
+
     // Handle specific errors
     if (error instanceof Error) {
       if (error.name === "ValidationError") {
@@ -676,7 +742,7 @@ export async function POST(request: NextRequest) {
             err: "VALIDATION_ERROR",
             status: HTTP_STATUS.BAD_REQUEST,
           },
-          { status: HTTP_STATUS.BAD_REQUEST }
+          { status: HTTP_STATUS.BAD_REQUEST },
         );
       }
 
@@ -689,20 +755,21 @@ export async function POST(request: NextRequest) {
             err: "DUPLICATE_KEY",
             status: HTTP_STATUS.CONFLICT,
           },
-          { status: HTTP_STATUS.CONFLICT }
+          { status: HTTP_STATUS.CONFLICT },
         );
       }
     }
-    
+
     return NextResponse.json(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Internal Server Error",
+        message:
+          error instanceof Error ? error.message : "Internal Server Error",
         data: null,
         err: "INTERNAL_SERVER_ERROR",
         status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
       },
-      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
+      { status: HTTP_STATUS.INTERNAL_SERVER_ERROR },
     );
   }
 }

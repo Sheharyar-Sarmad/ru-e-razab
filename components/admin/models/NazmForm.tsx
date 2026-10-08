@@ -1,7 +1,7 @@
 // components/admin/jadeed-kalam/NazmForm.tsx
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import axios from "axios";
 import { COLORS } from "@/lib/colors";
 import Modal from "./SharedKalamModel";
@@ -22,8 +22,12 @@ import { useDropzone } from "react-dropzone";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_MEDIA_FILES = 20;
-const MAX_BANDS = 6;
-const LINES_PER_BAND = 4; // 2 shairs x 2 misras
+const MAX_LINES = 100;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
+
+// Fixed takhallus for Azad Nazm
+const FIXED_TAKHALLUS = "رزب تبریز";
 
 const ALLOWED_COVER_TYPES = [
   "image/jpeg",
@@ -78,7 +82,7 @@ const ALLOWED_MEDIA_TYPES = {
 
 const ALLOWED_MEDIA_TYPES_FLAT = Object.values(ALLOWED_MEDIA_TYPES).flat();
 
-// Zod Schema
+// Zod Schema — Azad Nazm
 const schema = z.object({
   unwan: z
     .string()
@@ -90,27 +94,16 @@ const schema = z.object({
     .min(2, "کم از کم 2 حروف")
     .max(50, "زیادہ سے زیادہ 50 حروف"),
 
+  // Flat array of lines (Azad Nazm)
   content: z
     .array(
-      z.object({
-        shairs: z
-          .array(
-            z.object({
-              lines: z
-                .array(
-                  z
-                    .string()
-                    .min(2, "کم از کم 2 حروف")
-                    .max(300, "زیادہ سے زیادہ 300 حروف")
-                )
-                .length(2, "بالکل 2 مصرعے"),
-            })
-          )
-          .length(2, "ہر بند میں بالکل 2 اشعار ہونے چاہئیں"),
-      })
+      z
+        .string()
+        .min(MIN_LINE_LENGTH, "کم از کم 2 حروف")
+        .max(MAX_LINE_LENGTH, "زیادہ سے زیادہ 300 حروف")
     )
-    .min(1, "کم از کم 1 بند")
-    .max(6, "زیادہ سے زیادہ 6 بند"),
+    .min(1, "کم از کم 1 مصرع")
+    .max(MAX_LINES, `زیادہ سے زیادہ ${MAX_LINES} مصرعے`),
 
   categories: z
     .array(z.string())
@@ -132,9 +125,7 @@ const schema = z.object({
     ),
 
   metaTitle: z.string().max(60, "زیادہ سے زیادہ 60 حروف").optional(),
-
   metaDescription: z.string().max(160, "زیادہ سے زیادہ 160 حروف").optional(),
-
   featured: z.boolean().optional(),
 
   links: z
@@ -144,21 +135,12 @@ const schema = z.object({
           .string()
           .min(1, "عنوان درکار ہے")
           .max(100, "زیادہ سے زیادہ 100 حروف"),
-
         url: z
           .string()
           .url("درست URL درج کریں")
           .max(500, "زیادہ سے زیادہ 500 حروف"),
-
         type: z
-          .enum([
-            "spotify",
-            "youtube",
-            "wikipedia",
-            "website",
-            "social",
-            "other",
-          ])
+          .enum(["spotify", "youtube", "wikipedia", "website", "social", "other"])
           .optional(),
       })
     )
@@ -166,9 +148,6 @@ const schema = z.object({
     .optional(),
 });
 
-// IMPORTANT:
-// Do not call this FormData because it conflicts with the browser's
-// native FormData constructor/type.
 type NazmFormData = z.infer<typeof schema>;
 
 interface MediaFileWithPreview extends File {
@@ -181,24 +160,17 @@ interface NazmFormProps {
   onClose: () => void;
 }
 
-const emptyBand = () => ({
-  shairs: [{ lines: ["", ""] }, { lines: ["", ""] }],
-});
-
 export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mediaFiles, setMediaFiles] = useState<MediaFileWithPreview[]>([]);
-  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(
-    null
-  );
+  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
 
-  // Quick paste panel state
+  // Textarea state — held separately so spacing / empty lines stay visible
   const [pasteText, setPasteText] = useState("");
   const [pasteInfo, setPasteInfo] = useState<{
     lines: number;
-    bands: number;
-    incomplete: boolean;
     truncated: boolean;
+    dropped: number;
   } | null>(null);
 
   const {
@@ -212,17 +184,12 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
     resolver: zodResolver(schema) as Resolver<NazmFormData>,
     defaultValues: {
       unwan: "",
-      takhallus: "",
-      content: [emptyBand()],
+      takhallus: FIXED_TAKHALLUS,
+      content: [],
       categories: [],
       links: [],
       featured: false,
     },
-  });
-
-  const { fields, append, remove, replace } = useFieldArray({
-    control,
-    name: "content",
   });
 
   const {
@@ -235,88 +202,64 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
   });
 
   // ---------------------------------------------------------
-  // Quick Paste (every 4 lines = 1 بند = 2 اشعار)
+  // Line Break / Paste handler
+  // Every non-empty line becomes one misra (line).
   // ---------------------------------------------------------
-
-  const handlePasteChange = (text: string) => {
+  const handlePasteChange = (
+    text: string,
+    onChange: (lines: string[]) => void
+  ) => {
     setPasteText(text);
 
-    const lines = text
+    const rawLines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
 
-    if (lines.length === 0) {
-      replace([emptyBand()]);
-      setPasteInfo(null);
-      return;
-    }
+    const truncated = rawLines.length > MAX_LINES;
+    const finalLines = rawLines.slice(0, MAX_LINES);
 
-    const bands: ReturnType<typeof emptyBand>[] = [];
-    for (let i = 0; i < lines.length; i += LINES_PER_BAND) {
-      bands.push({
-        shairs: [
-          { lines: [lines[i] ?? "", lines[i + 1] ?? ""] },
-          { lines: [lines[i + 2] ?? "", lines[i + 3] ?? ""] },
-        ],
-      });
-    }
-
-    const truncated = bands.length > MAX_BANDS;
-    const finalBands = bands.slice(0, MAX_BANDS);
-
-    replace(finalBands);
-    setPasteInfo({
-      lines: lines.length,
-      bands: finalBands.length,
-      incomplete: lines.length % LINES_PER_BAND !== 0,
-      truncated,
-    });
+    onChange(finalLines);
+    setPasteInfo(
+      rawLines.length === 0
+        ? null
+        : {
+            lines: rawLines.length,
+            truncated,
+            dropped: rawLines.length - finalLines.length,
+          }
+    );
   };
 
-  const clearPaste = () => {
+  const clearPaste = (onChange: (lines: string[]) => void) => {
     setPasteText("");
     setPasteInfo(null);
-    replace([emptyBand()]);
+    onChange([]);
   };
 
   // ---------------------------------------------------------
   // Media Dropzone
   // ---------------------------------------------------------
-
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles: MediaFileWithPreview[] = acceptedFiles.map((file) => {
-      const fileWithPreview = Object.assign(file, {
+    const newFiles: MediaFileWithPreview[] = acceptedFiles.map((file) =>
+      Object.assign(file, {
         preview: URL.createObjectURL(file),
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      });
-
-      return fileWithPreview;
-    });
+      })
+    );
 
     setMediaFiles((prev) => {
       const total = prev.length + newFiles.length;
-
       if (total > MAX_MEDIA_FILES) {
-        newFiles.forEach((file) => {
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-        });
-
+        newFiles.forEach((file) => file.preview && URL.revokeObjectURL(file.preview));
         toast.error(
           `زیادہ سے زیادہ ${MAX_MEDIA_FILES} فائلیں اپ لوڈ کی جا سکتی ہیں`,
           {
-            style: {
-              background: "#4A2B2B",
-              color: "#FFF3EF",
-            },
+            style: { background: "#4A2B2B", color: "#FFF3EF" },
           }
         );
-
         return prev;
       }
-
       return [...prev, ...newFiles];
     });
   }, []);
@@ -337,66 +280,43 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
   // ---------------------------------------------------------
   // Cover Image
   // ---------------------------------------------------------
-
   const handleCoverImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (!file) return;
 
-    if (!file) {
-      return;
-    }
-
-    setValue("coverImage", file, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
+    setValue("coverImage", file, { shouldValidate: true, shouldDirty: true });
 
     const reader = new FileReader();
-
     reader.onload = (event) => {
       const result = event.target?.result;
-
-      if (typeof result === "string") {
-        setCoverImagePreview(result);
-      }
+      if (typeof result === "string") setCoverImagePreview(result);
     };
-
     reader.readAsDataURL(file);
   };
 
   // ---------------------------------------------------------
   // Remove Media File
   // ---------------------------------------------------------
-
   const removeMediaFile = (id: string) => {
     setMediaFiles((prev) => {
       const file = prev.find((item) => item.id === id);
-
-      if (file?.preview) {
-        URL.revokeObjectURL(file.preview);
-      }
-
+      if (file?.preview) URL.revokeObjectURL(file.preview);
       return prev.filter((item) => item.id !== id);
     });
   };
 
-  // ---------------------------------------------------------
   // Cleanup Object URLs
-  // ---------------------------------------------------------
-
   useEffect(() => {
     return () => {
       mediaFiles.forEach((file) => {
-        if (file.preview) {
-          URL.revokeObjectURL(file.preview);
-        }
+        if (file.preview) URL.revokeObjectURL(file.preview);
       });
     };
   }, [mediaFiles]);
 
   // ---------------------------------------------------------
-  // Media Type Icon
+  // Media icons / size formatter
   // ---------------------------------------------------------
-
   const getMediaIcon = (file: File) => {
     if (file.type.startsWith("image/")) {
       return (
@@ -415,7 +335,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
         </svg>
       );
     }
-
     if (file.type.startsWith("video/")) {
       return (
         <svg
@@ -433,7 +352,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
         </svg>
       );
     }
-
     if (file.type.startsWith("audio/")) {
       return (
         <svg
@@ -451,7 +369,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
         </svg>
       );
     }
-
     return (
       <svg
         className="h-8 w-8 text-gray-500"
@@ -468,71 +385,50 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
     );
   };
 
-  // ---------------------------------------------------------
-  // Format File Size
-  // ---------------------------------------------------------
-
   const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) {
-      return `${bytes} B`;
-    }
-
-    if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-
-    if (bytes < 1024 * 1024 * 1024) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
       return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
+
+  // Preview of parsed lines (nice visual feedback for the admin)
+  const parsedLines = useMemo(() => {
+    return pasteText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }, [pasteText]);
 
   // ---------------------------------------------------------
   // Submit
   // ---------------------------------------------------------
-
   const onSubmit: SubmitHandler<NazmFormData> = async (data) => {
     setIsSubmitting(true);
-
     try {
-      // Native browser FormData.
       const formData = new globalThis.FormData();
 
       formData.append("unwan", data.unwan);
-      formData.append("takhallus", data.takhallus);
+      formData.append("takhallus", FIXED_TAKHALLUS);
       formData.append("content", JSON.stringify(data.content));
       formData.append("categories", JSON.stringify(data.categories));
       formData.append("coverImage", data.coverImage);
 
-      // Media files
-      mediaFiles.forEach((file) => {
-        formData.append("media", file);
-      });
+      mediaFiles.forEach((file) => formData.append("media", file));
 
-      if (data.metaTitle) {
-        formData.append("metaTitle", data.metaTitle);
-      }
-
-      if (data.metaDescription) {
+      if (data.metaTitle) formData.append("metaTitle", data.metaTitle);
+      if (data.metaDescription)
         formData.append("metaDescription", data.metaDescription);
-      }
-
-      if (data.featured) {
-        formData.append("featured", "true");
-      }
-
-      if (data.links && data.links.length > 0) {
+      if (data.featured) formData.append("featured", "true");
+      if (data.links && data.links.length > 0)
         formData.append("links", JSON.stringify(data.links));
-      }
 
       const response = await axios.post(
         "/api/admin/dashboard/jadeed/nazm",
         formData,
         {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
+          headers: { "Content-Type": "multipart/form-data" },
           withCredentials: true,
           timeout: 120000,
         }
@@ -540,23 +436,17 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
 
       if (response.data?.success) {
         toast.success("نظم تخلیق ہوگئی! 🎉", {
-          style: {
-            background: "#2B4735",
-            color: "#FFF3EF",
-          },
+          style: { background: "#2B4735", color: "#FFF3EF" },
         });
 
-        // Revoke previews before clearing state
-        mediaFiles.forEach((file) => {
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-        });
+        mediaFiles.forEach(
+          (file) => file.preview && URL.revokeObjectURL(file.preview)
+        );
 
         reset({
           unwan: "",
-          takhallus: "",
-          content: [emptyBand()],
+          takhallus: FIXED_TAKHALLUS,
+          content: [],
           categories: [],
           links: [],
           featured: false,
@@ -567,22 +457,16 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
         setPasteText("");
         setPasteInfo(null);
 
-        setTimeout(() => {
-          onClose();
-        }, 1500);
+        setTimeout(() => onClose(), 1500);
       } else {
         toast.error(response.data?.message || "کچھ غلط ہو گیا", {
-          style: {
-            background: "#4A2B2B",
-            color: "#FFF3EF",
-          },
+          style: { background: "#4A2B2B", color: "#FFF3EF" },
         });
       }
     } catch (error: unknown) {
       console.error("Form submission error:", error);
 
       let message = "نیٹ ورک کی خرابی";
-
       if (axios.isAxiosError(error)) {
         message = error.response?.data?.message || error.message || message;
       } else if (error instanceof Error) {
@@ -590,104 +474,69 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
       }
 
       toast.error(message, {
-        style: {
-          background: "#4A2B2B",
-          color: "#FFF3EF",
-        },
+        style: { background: "#4A2B2B", color: "#FFF3EF" },
       });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ---------------------------------------------------------
-  // Add Band
-  // ---------------------------------------------------------
-
-  const addBand = () => {
-    if (fields.length < MAX_BANDS) {
-      append(emptyBand());
-    }
-  };
-
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title="نئی نظم تخلیق کریں">
+      <Modal isOpen={isOpen} onClose={onClose} title="نئی نظم تخلیق کریں (آزاد نظم)">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" dir="rtl">
           {/* Unwan */}
           <div>
             <label
               className="block text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
               عنوان <span className="text-red-500">*</span>
             </label>
-
             <input
               {...register("unwan")}
               className="mt-1 w-full px-4 py-2 rounded-lg border focus:ring-2 focus:outline-none font-urdu"
               style={{
-                borderColor: errors.unwan
-                  ? "#ef4444"
-                  : `${COLORS.deepForest}40`,
+                borderColor: errors.unwan ? "#ef4444" : `${COLORS.deepForest}40`,
                 background: `${COLORS.warmWhite}40`,
               }}
               placeholder="مثال: دلِ ناداں"
             />
-
             {errors.unwan && (
-              <p className="mt-1 text-sm text-red-500">
-                {errors.unwan.message}
-              </p>
+              <p className="mt-1 text-sm text-red-500">{errors.unwan.message}</p>
             )}
           </div>
 
-          {/* Takhallus */}
+          {/* Takhallus — fixed to رزب تبریز */}
           <div>
             <label
               className="block text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
-              تخلص <span className="text-red-500">*</span>
+              تخلص
             </label>
-
             <input
               {...register("takhallus")}
-              className="mt-1 w-full px-4 py-2 rounded-lg border focus:ring-2 focus:outline-none font-urdu"
+              value={FIXED_TAKHALLUS}
+              readOnly
+              disabled
+              className="mt-1 w-full px-4 py-2 rounded-lg border focus:outline-none font-urdu opacity-90 cursor-not-allowed"
               style={{
-                borderColor: errors.takhallus
-                  ? "#ef4444"
-                  : `${COLORS.deepForest}40`,
-                background: `${COLORS.warmWhite}40`,
+                borderColor: `${COLORS.deepForest}40`,
+                background: `${COLORS.warmWhite}80`,
+                color: COLORS.deepForest,
               }}
-              placeholder="مثال: فیض احمد فیض"
             />
-
-            {errors.takhallus && (
-              <p className="mt-1 text-sm text-red-500">
-                {errors.takhallus.message}
-              </p>
-            )}
           </div>
 
-          {/* Quick Paste Panel (Recommended) */}
-          <div
-            className="rounded-xl border p-4"
-            style={{
-              borderColor: `${COLORS.deepForest}30`,
-              background: `${COLORS.warmWhite}60`,
-            }}
-          >
+          {/* Azad Nazm lines — paste & auto line-break */}
+          <div>
             <div className="flex items-center justify-between mb-2">
               <label
                 className="text-sm font-medium"
                 style={{ color: COLORS.deepForest }}
               >
-                مکمل نظم ایک ساتھ پیسٹ کریں
+                نظم کے مصرعے <span className="text-red-500">*</span> (1-{MAX_LINES})
               </label>
               <span
                 className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -696,191 +545,119 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                   color: COLORS.deepForest,
                 }}
               >
-                تجویز کردہ ⭐
+                آزاد نظم ⭐
               </span>
             </div>
 
             <p className="text-xs text-gray-500 mb-2">
-              ہر مصرع نئی سطر میں لکھیں۔ ہر 4 مصرعوں سے ایک بند بنے گا (2 اشعار)
-              اور نیچے خانے خودبخود بھر جائیں گے۔
+              پوری نظم پیسٹ کریں — ہر مصرع نئی سطر میں۔ لائن بریک خودبخود ہو
+              جائے گا۔ (زیادہ سے زیادہ {MAX_LINES} مصرعے، ہر مصرع 2–300 حروف)
             </p>
 
-            <textarea
-              value={pasteText}
-              onChange={(e) => handlePasteChange(e.target.value)}
-              rows={10}
-              dir="rtl"
-              placeholder={
-                "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n...\n(ہر 4 مصرعے = 1 بند)"
-              }
-              className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
-              style={{
-                borderColor: `${COLORS.deepForest}40`,
-                background: "#FFFFFF",
-              }}
-            />
+            <Controller
+              control={control}
+              name="content"
+              render={({ field }) => (
+                <>
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => handlePasteChange(e.target.value, field.onChange)}
+                    rows={16}
+                    dir="rtl"
+                    placeholder={
+                      "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n...\n(ہر نئی سطر = نیا مصرع)"
+                    }
+                    className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
+                    style={{
+                      borderColor: errors.content
+                        ? "#ef4444"
+                        : `${COLORS.deepForest}40`,
+                      background: "#FFFFFF",
+                    }}
+                  />
 
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs">
-                {pasteInfo && (
-                  <span className="text-gray-600">
-                    {pasteInfo.lines} مصرعے ← {pasteInfo.bands} بند
-                  </span>
-                )}
-                {pasteInfo?.incomplete && (
-                  <span className="mr-3 text-amber-600">
-                    ⚠ مصرعوں کی تعداد 4 کا مضروب نہیں، آخری بند نامکمل ہے
-                  </span>
-                )}
-                {pasteInfo?.truncated && (
-                  <span className="mr-3 text-red-500">
-                    ⚠ صرف پہلے 6 بند لیے گئے ہیں
-                  </span>
-                )}
-              </div>
-              {pasteText && (
-                <button
-                  type="button"
-                  onClick={clearPaste}
-                  className="text-xs text-red-500 hover:text-red-700"
-                >
-                  صاف کریں
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Content */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label
-                className="block text-sm font-medium"
-                style={{
-                  color: COLORS.deepForest,
-                }}
-              >
-                بند <span className="text-red-500">*</span> (1-6)
-              </label>
-
-              <button
-                type="button"
-                onClick={addBand}
-                disabled={fields.length >= MAX_BANDS}
-                className="text-sm px-3 py-1 rounded-full transition-colors disabled:opacity-50"
-                style={{
-                  background: `${COLORS.tataBlue}20`,
-                  color: COLORS.tataBlue,
-                }}
-              >
-                + بند شامل کریں
-              </button>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto space-y-4 mt-2">
-              {fields.map((field, bandIndex) => (
-                <div
-                  key={field.id}
-                  className="p-4 rounded-lg border"
-                  style={{
-                    borderColor: `${COLORS.deepForest}20`,
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-sm font-medium"
-                      style={{
-                        color: COLORS.deepForest,
-                      }}
-                    >
-                      بند #{bandIndex + 1}
-                    </span>
-
-                    {fields.length > 1 && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs">
+                      {pasteInfo && (
+                        <span className="text-gray-600">
+                          {pasteInfo.lines} مصرعے
+                        </span>
+                      )}
+                      {pasteInfo?.truncated && (
+                        <span className="mr-3 text-red-500">
+                          ⚠ صرف پہلے {MAX_LINES} مصرعے لیے گئے ہیں (
+                          {pasteInfo.dropped} خارج)
+                        </span>
+                      )}
+                    </div>
+                    {pasteText && (
                       <button
                         type="button"
-                        onClick={() => remove(bandIndex)}
-                        className="text-red-500 text-sm hover:text-red-700"
+                        onClick={() => clearPaste(field.onChange)}
+                        className="text-xs text-red-500 hover:text-red-700"
                       >
-                        ہٹائیں
+                        صاف کریں
                       </button>
                     )}
                   </div>
 
-                  <div className="mt-2 grid grid-cols-1 gap-4">
-                    {[0, 1].map((shairIdx) => (
-                      <div
-                        key={shairIdx}
-                        className="border-r-2 pl-3"
-                        style={{
-                          borderColor: COLORS.tataBlue,
-                        }}
+                  {/* Line-by-line preview (nice for admins to confirm the break) */}
+                  {parsedLines.length > 0 && (
+                    <div
+                      className="mt-3 max-h-64 overflow-y-auto rounded-lg border p-3"
+                      style={{
+                        borderColor: `${COLORS.deepForest}20`,
+                        background: `${COLORS.warmWhite}40`,
+                      }}
+                    >
+                      <p
+                        className="text-xs mb-2 font-medium"
+                        style={{ color: COLORS.deepForest }}
                       >
-                        <span
-                          className="text-xs"
-                          style={{
-                            color: COLORS.tataBlue,
-                          }}
-                        >
-                          شعر {shairIdx + 1}
-                        </span>
-
-                        <div className="mt-1 grid grid-cols-1 gap-2">
-                          <input
-                            {...register(
-                              `content.${bandIndex}.shairs.${shairIdx}.lines.0`
-                            )}
-                            className="w-full px-3 py-1 rounded border focus:ring-2 focus:outline-none font-urdu"
-                            style={{
-                              borderColor: `${COLORS.deepForest}40`,
-                              background: `${COLORS.warmWhite}40`,
-                            }}
-                            placeholder="پہلا مصرع"
-                          />
-
-                          <input
-                            {...register(
-                              `content.${bandIndex}.shairs.${shairIdx}.lines.1`
-                            )}
-                            className="w-full px-3 py-1 rounded border focus:ring-2 focus:outline-none font-urdu"
-                            style={{
-                              borderColor: `${COLORS.deepForest}40`,
-                              background: `${COLORS.warmWhite}40`,
-                            }}
-                            placeholder="دوسرا مصرع"
-                          />
-                        </div>
-                      </div>
-                    ))}
-
-                    {errors.content?.[bandIndex]?.shairs?.message && (
-                      <p className="text-sm text-red-500">
-                        {errors.content[bandIndex]?.shairs?.message}
+                        پیش نظارہ ({parsedLines.length} مصرعے)
                       </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                      <ol className="space-y-1 font-urdu leading-[2] text-sm">
+                        {parsedLines.map((line, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span
+                              className="text-xs shrink-0 w-8 text-left"
+                              style={{ color: COLORS.tataBlue }}
+                            >
+                              {i + 1}.
+                            </span>
+                            <span className="flex-1">{line}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </>
+              )}
+            />
 
             {errors.content?.message && (
               <p className="mt-1 text-sm text-red-500">
                 {errors.content.message}
               </p>
             )}
+            {Array.isArray(errors.content) &&
+              errors.content.map((err, i) =>
+                err?.message ? (
+                  <p key={i} className="mt-1 text-sm text-red-500">
+                    مصرع #{i + 1}: {err.message}
+                  </p>
+                ) : null
+              )}
           </div>
 
           {/* Categories */}
           <div>
             <label
               className="block text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
-              زمرہ جات <span className="text-red-500">*</span> (کاما سے الگ
-              کریں)
+              زمرہ جات <span className="text-red-500">*</span> (کاما سے الگ کریں)
             </label>
-
             <Controller
               control={control}
               name="categories"
@@ -907,7 +684,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                 />
               )}
             />
-
             {errors.categories?.message && (
               <p className="mt-1 text-sm text-red-500">
                 {errors.categories.message}
@@ -919,14 +695,11 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
           <div>
             <label
               className="block text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
               سرورق کی تصویر <span className="text-red-500">*</span> (زیادہ سے
               زیادہ 5MB)
             </label>
-
             <div
               className="mt-1 border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors"
               style={{
@@ -944,7 +717,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                 onChange={handleCoverImageChange}
                 className="hidden"
               />
-
               {coverImagePreview ? (
                 <div>
                   <img
@@ -952,7 +724,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                     alt="Cover"
                     className="max-h-48 mx-auto object-contain"
                   />
-
                   <p className="mt-2 text-sm text-gray-600">
                     تصویر تبدیل کرنے کے لیے کلک کریں
                   </p>
@@ -972,18 +743,15 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                       strokeLinejoin="round"
                     />
                   </svg>
-
                   <p className="mt-2 text-sm text-gray-600">
                     سرورق کی تصویر اپ لوڈ کریں
                   </p>
-
                   <p className="text-xs text-gray-500">
                     JPEG, PNG, WEBP, GIF (زیادہ سے زیادہ 5MB)
                   </p>
                 </div>
               )}
             </div>
-
             {errors.coverImage?.message && (
               <p className="mt-1 text-sm text-red-500">
                 {errors.coverImage.message}
@@ -995,13 +763,10 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
           <div>
             <label
               className="block text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
               میڈیا فائلیں (اختیاری - تصاویر، ویڈیوز، آڈیو، دستاویزات)
             </label>
-
             <div
               {...getRootProps()}
               className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
@@ -1013,7 +778,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
               }}
             >
               <input {...getInputProps()} />
-
               {isDragActive ? (
                 <p className="text-blue-500">فائلیں یہاں ڈراپ کریں...</p>
               ) : (
@@ -1031,16 +795,13 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                       strokeLinejoin="round"
                     />
                   </svg>
-
                   <p className="mt-2 text-sm text-gray-600">
                     کلک کریں یا ڈریگ & ڈراپ کریں
                   </p>
-
                   <p className="text-xs text-gray-500 mt-1">
-                    تصاویر: JPEG, PNG, WEBP, GIF | ویڈیوز: MP4, WEBM, OGG |
-                    آڈیو: MP3, WAV, OGG | دستاویزات: PDF, DOC, DOCX, TXT
+                    تصاویر: JPEG, PNG, WEBP, GIF | ویڈیوز: MP4, WEBM, OGG | آڈیو:
+                    MP3, WAV, OGG | دستاویزات: PDF, DOC, DOCX, TXT
                   </p>
-
                   <p className="text-xs text-gray-500">
                     زیادہ سے زیادہ {MAX_MEDIA_FILES} فائلیں،{" "}
                     {formatFileSize(MAX_MEDIA_SIZE)} فی فائل
@@ -1049,16 +810,13 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
               )}
             </div>
 
-            {/* Media Preview */}
             {mediaFiles.length > 0 && (
               <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {mediaFiles.map((file) => (
                   <div
                     key={file.id}
                     className="relative border rounded-lg p-2 group"
-                    style={{
-                      borderColor: `${COLORS.deepForest}20`,
-                    }}
+                    style={{ borderColor: `${COLORS.deepForest}20` }}
                   >
                     <div className="h-24 w-full flex items-center justify-center bg-gray-50 rounded">
                       {file.type.startsWith("image/") && file.preview && (
@@ -1068,7 +826,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                           className="h-full w-full object-cover rounded"
                         />
                       )}
-
                       {file.type.startsWith("video/") && (
                         <video
                           src={file.preview}
@@ -1077,38 +834,24 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                           muted
                         />
                       )}
-
                       {file.type.startsWith("audio/") && (
                         <div className="flex flex-col items-center">
                           {getMediaIcon(file)}
-
                           <div className="mt-1 text-xs text-gray-500 text-center">
                             🎵 آڈیو
                           </div>
                         </div>
                       )}
-
-                      {file.type.startsWith("application/") && (
+                      {(file.type.startsWith("application/") ||
+                        file.type.startsWith("text/")) && (
                         <div className="flex flex-col items-center">
                           {getMediaIcon(file)}
-
-                          <div className="mt-1 text-xs text-gray-500 text-center">
-                            📄 دستاویز
-                          </div>
-                        </div>
-                      )}
-
-                      {file.type.startsWith("text/") && (
-                        <div className="flex flex-col items-center">
-                          {getMediaIcon(file)}
-
                           <div className="mt-1 text-xs text-gray-500 text-center">
                             📄 دستاویز
                           </div>
                         </div>
                       )}
                     </div>
-
                     <div className="mt-1">
                       <p
                         className="text-xs truncate font-medium"
@@ -1116,12 +859,10 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                       >
                         {file.name}
                       </p>
-
                       <p className="text-xs text-gray-500">
                         {formatFileSize(file.size)}
                       </p>
                     </div>
-
                     <button
                       type="button"
                       onClick={() => removeMediaFile(file.id!)}
@@ -1151,13 +892,10 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
             <div>
               <label
                 className="block text-sm font-medium"
-                style={{
-                  color: COLORS.deepForest,
-                }}
+                style={{ color: COLORS.deepForest }}
               >
                 میٹا ٹائٹل (اختیاری، زیادہ سے زیادہ 60 حروف)
               </label>
-
               <input
                 {...register("metaTitle")}
                 className="mt-1 w-full px-4 py-2 rounded-lg border focus:ring-2 focus:outline-none font-urdu"
@@ -1167,24 +905,19 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                 }}
                 placeholder="خودکار جنریٹ ہوگا اگر خالی چھوڑیں"
               />
-
               {errors.metaTitle?.message && (
                 <p className="mt-1 text-sm text-red-500">
                   {errors.metaTitle.message}
                 </p>
               )}
             </div>
-
             <div>
               <label
                 className="block text-sm font-medium"
-                style={{
-                  color: COLORS.deepForest,
-                }}
+                style={{ color: COLORS.deepForest }}
               >
                 میٹا ڈسکرپشن (اختیاری، زیادہ سے زیادہ 160 حروف)
               </label>
-
               <input
                 {...register("metaDescription")}
                 className="mt-1 w-full px-4 py-2 rounded-lg border focus:ring-2 focus:outline-none font-urdu"
@@ -1194,7 +927,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                 }}
                 placeholder="خودکار جنریٹ ہوگا اگر خالی چھوڑیں"
               />
-
               {errors.metaDescription?.message && (
                 <p className="mt-1 text-sm text-red-500">
                   {errors.metaDescription.message}
@@ -1209,16 +941,11 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
               type="checkbox"
               {...register("featured")}
               className="w-4 h-4 rounded"
-              style={{
-                accentColor: COLORS.deepForest,
-              }}
+              style={{ accentColor: COLORS.deepForest }}
             />
-
             <label
               className="text-sm font-medium"
-              style={{
-                color: COLORS.deepForest,
-              }}
+              style={{ color: COLORS.deepForest }}
             >
               نمایاں کریں (Featured)
             </label>
@@ -1229,22 +956,15 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
             <div className="flex items-center justify-between">
               <label
                 className="block text-sm font-medium"
-                style={{
-                  color: COLORS.deepForest,
-                }}
+                style={{ color: COLORS.deepForest }}
               >
                 لنکس (اختیاری، زیادہ سے زیادہ 5)
               </label>
-
               {linkFields.length < 5 && (
                 <button
                   type="button"
                   onClick={() =>
-                    appendLink({
-                      title: "",
-                      url: "",
-                      type: "website",
-                    })
+                    appendLink({ title: "", url: "", type: "website" })
                   }
                   className="text-sm px-3 py-1 rounded-full transition-colors"
                   style={{
@@ -1261,9 +981,7 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
               <div
                 key={field.id}
                 className="mt-2 p-3 rounded-lg border"
-                style={{
-                  borderColor: `${COLORS.deepForest}20`,
-                }}
+                style={{ borderColor: `${COLORS.deepForest}20` }}
               >
                 <div className="flex items-center gap-2 flex-wrap">
                   <input
@@ -1275,7 +993,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                     }}
                     placeholder="عنوان"
                   />
-
                   <input
                     {...register(`links.${index}.url`)}
                     className="flex-1 min-w-[150px] px-3 py-1 rounded border focus:ring-2 focus:outline-none font-urdu"
@@ -1285,7 +1002,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                     }}
                     placeholder="URL"
                   />
-
                   <select
                     {...register(`links.${index}.type`)}
                     className="px-3 py-1 rounded border focus:ring-2 focus:outline-none"
@@ -1301,7 +1017,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
                     <option value="social">Social</option>
                     <option value="other">Other</option>
                   </select>
-
                   <button
                     type="button"
                     onClick={() => removeLink(index)}
@@ -1322,7 +1037,7 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
             ))}
           </div>
 
-          {/* Sticky Submit Button */}
+          {/* Sticky Submit */}
           <div
             className="sticky bottom-0 flex items-center gap-4 pt-4 pb-2 border-t mt-4"
             style={{
@@ -1342,7 +1057,6 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
             >
               {isSubmitting ? "تخلیق ہو رہی ہے..." : "تخلیق کریں"}
             </button>
-
             <button
               type="button"
               onClick={onClose}
@@ -1351,18 +1065,15 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
             >
               منسوخ کریں
             </button>
-
             {mediaFiles.length > 0 && (
               <span className="text-sm text-gray-500 mr-auto">
-                {mediaFiles.length} فائل
-                {mediaFiles.length > 1 ? "یں" : ""} منتخب
+                {mediaFiles.length} فائل{mediaFiles.length > 1 ? "یں" : ""} منتخب
               </span>
             )}
           </div>
         </form>
       </Modal>
 
-      {/* Toast Container */}
       <ToastContainer
         position="top-center"
         autoClose={3000}
@@ -1374,10 +1085,7 @@ export default function NazmForm({ isOpen, onClose }: NazmFormProps) {
         draggable
         pauseOnHover
         theme="colored"
-        style={{
-          width: "auto",
-          maxWidth: "90%",
-        }}
+        style={{ width: "auto", maxWidth: "90%" }}
         toastClassName="custom-toast"
       />
     </>

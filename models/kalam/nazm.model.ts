@@ -8,14 +8,6 @@ interface Comment {
   createdAt: Date;
 }
 
-interface Shair {
-  lines: string[];
-}
-
-interface Band {
-  shairs: Shair[];
-}
-
 interface Link {
   title: string;
   url: string;
@@ -41,7 +33,7 @@ interface Nazm {
   unwan: string;
   takhallus: string;
   slug?: string;
-  content: Band[];
+  content: string[]; // Azad Nazm — flat array of lines (misra)
   category: string[];
   coverImage: string;
   coverImageMetadata?: {
@@ -62,7 +54,7 @@ interface Nazm {
   publishedAt?: Date;
 }
 
-// SUB-SCHEMAS 
+// SUB-SCHEMAS
 
 const CommentSchema = new Schema<Comment>(
   {
@@ -81,48 +73,6 @@ const CommentSchema = new Schema<Comment>(
   },
   {
     timestamps: true,
-  }
-);
-
-const ShairSchema = new Schema<Shair>(
-  {
-    lines: {
-      type: [String],
-      required: true,
-      set: (lines: string[]) => lines.map((line) => line.trim()),
-      validate: [
-        {
-          validator: (lines: string[]) => lines.length === 2,
-          message: "Each shair must contain exactly 2 lines",
-        },
-        {
-          validator: (lines: string[]) =>
-            lines.every(
-              (line) => line.trim().length >= 2 && line.trim().length <= 300
-            ),
-          message: "Each line must be between 2 and 300 characters",
-        },
-      ],
-    },
-  },
-  {
-    _id: false,
-  }
-);
-
-const BandSchema = new Schema<Band>(
-  {
-    shairs: {
-      type: [ShairSchema],
-      required: true,
-      validate: {
-        validator: (shairs: Shair[]) => shairs.length === 2,
-        message: "Each band must contain exactly 2 shairs",
-      },
-    },
-  },
-  {
-    _id: false,
   }
 );
 
@@ -262,7 +212,7 @@ const CoverImageMetadataSchema = new Schema(
   }
 );
 
-// MAIN SCHEMA 
+// MAIN SCHEMA
 
 const NazmSchema = new Schema<Nazm>(
   {
@@ -287,13 +237,29 @@ const NazmSchema = new Schema<Nazm>(
       index: true,
       trim: true,
     },
+    // Azad Nazm — flat array of lines (misra), 1..100 lines, 2..300 chars each
     content: {
-      type: [BandSchema],
+      type: [String],
       required: true,
-      validate: {
-        validator: (bands: Band[]) => bands.length >= 1 && bands.length <= 6,
-        message: "A Nazm must contain between 1 and 6 bands",
-      },
+      set: (lines: string[]) => lines.map((line) => line.trim()),
+      validate: [
+        {
+          validator: (lines: string[]) =>
+            Array.isArray(lines) && lines.length >= 1 && lines.length <= 100,
+          message: "A Nazm must contain between 1 and 100 lines",
+        },
+        {
+          validator: (lines: string[]) =>
+            Array.isArray(lines) &&
+            lines.every(
+              (line) =>
+                typeof line === "string" &&
+                line.trim().length >= 2 &&
+                line.trim().length <= 300
+            ),
+          message: "Each line must be between 2 and 300 characters",
+        },
+      ],
     },
     category: {
       type: [String],
@@ -319,7 +285,7 @@ const NazmSchema = new Schema<Nazm>(
       required: false,
       default: [],
       validate: {
-        validator: function(media: MediaFile[]) {
+        validator: function (media: MediaFile[]) {
           return media.length <= 20;
         },
         message: "A Nazm can have maximum 20 media files",
@@ -381,7 +347,7 @@ const NazmSchema = new Schema<Nazm>(
   }
 );
 
-// INDEXES 
+// INDEXES
 
 NazmSchema.index(
   { takhallus: 1, createdAt: -1 },
@@ -442,7 +408,7 @@ NazmSchema.index(
 NazmSchema.index(
   {
     takhallus: "text",
-    "content.shairs.lines": "text",
+    content: "text",
     metaTitle: "text",
     metaDescription: "text",
   },
@@ -451,7 +417,7 @@ NazmSchema.index(
     background: true,
     weights: {
       takhallus: 10,
-      "content.shairs.lines": 8,
+      content: 8,
       metaTitle: 6,
       metaDescription: 4,
     },
@@ -467,7 +433,7 @@ NazmSchema.index(
   {
     unwan: "text",
     takhallus: "text",
-    "content.shairs.lines": "text",
+    content: "text",
     metaTitle: "text",
     metaDescription: "text",
   },
@@ -475,9 +441,9 @@ NazmSchema.index(
     name: "nazm_search_text_idx",
     background: true,
     weights: {
-      unwan: 12,               // highest priority
+      unwan: 12, // highest priority
       takhallus: 10,
-      "content.shairs.lines": 8,
+      content: 8,
       metaTitle: 6,
       metaDescription: 4,
     },
@@ -494,12 +460,10 @@ NazmSchema.index(
   { collation: { locale: "en", strength: 2 }, name: "takhallus_ci_idx" }
 );
 
-// MIDDLEWARE 
+// MIDDLEWARE
 
 NazmSchema.pre("validate", function () {
   // Slug: generate on create, or when the title changes.
-  // If you'd rather let admins set a custom slug, keep the `!this.slug` check
-  // and drop the isModified("unwan") part.
   if ((this.isNew || this.isModified("unwan")) && this.unwan) {
     const base = makeSlug(this.unwan) || "nazm";
     // Last 6 chars of _id keep the unique index from ever colliding
@@ -511,10 +475,7 @@ NazmSchema.pre("validate", function () {
   }
 
   if (!this.metaDescription && this.content?.length) {
-    const text = this.content
-      .flatMap((band) => band.shairs.flatMap((s) => s.lines))
-      .join(" ")
-      .slice(0, 150);
+    const text = this.content.join(" ").slice(0, 150);
     this.metaDescription =
       `${text}... Read the complete nazm by ${this.takhallus || "the poet"}.`.slice(0, 160);
   }
@@ -524,19 +485,19 @@ NazmSchema.pre("validate", function () {
   }
 });
 
-// STATIC METHODS 
+// STATIC METHODS
 
-NazmSchema.statics.findBySlug = function(slug: string) {
+NazmSchema.statics.findBySlug = function (slug: string) {
   return this.findOne({ slug });
 };
 
-NazmSchema.statics.findFeatured = function(limit: number = 10) {
+NazmSchema.statics.findFeatured = function (limit: number = 10) {
   return this.find({ featured: true })
     .sort({ createdAt: -1 })
     .limit(limit);
 };
 
-NazmSchema.statics.incrementViews = function(id: Types.ObjectId) {
+NazmSchema.statics.incrementViews = function (id: Types.ObjectId) {
   return this.findByIdAndUpdate(
     id,
     { $inc: { views: 1 } },
@@ -544,7 +505,7 @@ NazmSchema.statics.incrementViews = function(id: Types.ObjectId) {
   );
 };
 
-// MODEL 
+// MODEL
 
 const NazmModel = models.Nazm || model<Nazm>("Nazm", NazmSchema);
 

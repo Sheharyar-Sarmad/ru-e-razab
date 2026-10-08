@@ -575,7 +575,7 @@ export default function QataForm({
                   : `${COLORS.deepForest}40`,
                 background: `${COLORS.warmWhite}40`,
               }}
-              placeholder="مثال: رَضَب تَبْریز"
+              placeholder="مثال: رزب تبریز"
             />
 
             {errors.takhallus && (

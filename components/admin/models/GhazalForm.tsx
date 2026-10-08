@@ -16,7 +16,7 @@ import { useDropzone } from "react-dropzone";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for cover image
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024; // 100MB for other media
 const MAX_MEDIA_FILES = 20;
-const MAX_SHAIRS = 10;
+const MAX_SHAIRS = 20;
 
 const ALLOWED_COVER_TYPES = [
   "image/jpeg",
@@ -90,7 +90,7 @@ const schema = z.object({
       }),
     )
     .min(1, "کم از کم 1 شعر")
-    .max(10, "زیادہ سے زیادہ 10 اشعار"),
+    .max(20, "زیادہ سے زیادہ 20 اشعار"), // ← was 10
   categories: z
     .array(z.string())
     .min(1, "کم از کم 1 زمرہ")
@@ -472,7 +472,7 @@ export default function GhazalForm({
                   : `${COLORS.deepForest}40`,
                 background: `${COLORS.warmWhite}40`,
               }}
-              placeholder="مثال: رَضَب تَبْریز"
+              placeholder="مثال: رزب تبریز"
             />
             {errors.takhallus && (
               <p className="mt-1 text-sm text-red-500">
@@ -517,9 +517,7 @@ export default function GhazalForm({
               onChange={(e) => handlePasteChange(e.target.value)}
               rows={8}
               dir="rtl"
-              placeholder={
-                "پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n..."
-              }
+              placeholder={"پہلا مصرع\nدوسرا مصرع\nتیسرا مصرع\nچوتھا مصرع\n..."}
               className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
               style={{
                 borderColor: `${COLORS.deepForest}40`,

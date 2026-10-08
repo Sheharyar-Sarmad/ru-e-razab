@@ -4,7 +4,11 @@
 import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { XMarkIcon, PhotoIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
+import {
+  XMarkIcon,
+  PhotoIcon,
+  PlusCircleIcon,
+} from "@heroicons/react/24/outline";
 import axios from "axios";
 import { toast } from "react-toastify";
 import { COLORS } from "@/lib/colors";
@@ -49,10 +53,19 @@ interface ApiResponse {
   message?: string;
 }
 
+const REQUIRED_LINES = 2;
+const MIN_LINE_LENGTH = 2;
+const MAX_LINE_LENGTH = 300;
+
 const successToastStyle = { background: "#2B4735", color: "#FFF3EF" };
 const errorToastStyle = { background: "#4A2B2B", color: "#FFF3EF" };
 
-export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: UpdateShairFormProps) {
+export default function UpdateShairForm({
+  shair,
+  isOpen,
+  onClose,
+  onUpdate,
+}: UpdateShairFormProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,31 +82,84 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
 
+  // Quick paste state
+  const [pasteText, setPasteText] = useState<string>("");
+  const [pasteInfo, setPasteInfo] = useState<{
+    lines: number;
+    extra: number;
+  } | null>(null);
+
   useEffect(() => {
     if (shair && isOpen) {
       setTakhallus(shair.takhallus);
-      setLines(shair.content && Array.isArray(shair.content) ? shair.content : ["", ""]);
+
+      const initialLines =
+        shair.content && Array.isArray(shair.content)
+          ? shair.content
+          : ["", ""];
+      setLines(initialLines);
+      setPasteText(initialLines.filter(Boolean).join("\n"));
+      setPasteInfo(null);
+
       setCategories(shair.category.join(", "));
       setMetaTitle(shair.metaTitle || "");
       setMetaDescription(shair.metaDescription || "");
       setFeatured(shair.featured || false);
       setLinks(shair.links || []);
-      setPublishedAt(shair.publishedAt ? new Date(shair.publishedAt).toISOString().split("T")[0] : "");
+      setPublishedAt(
+        shair.publishedAt
+          ? new Date(shair.publishedAt).toISOString().split("T")[0]
+          : ""
+      );
       setCoverImageFile(null);
       setMediaFiles([]);
       setError(null);
     }
   }, [shair, isOpen]);
 
+  // ---------- Quick Paste (first 2 lines fill the shair) ----------
+  const handlePasteChange = (text: string) => {
+    setPasteText(text);
+
+    const parsed = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (parsed.length === 0) {
+      setLines(["", ""]);
+      setPasteInfo(null);
+      return;
+    }
+
+    const firstTwo = [parsed[0] ?? "", parsed[1] ?? ""];
+    setLines(firstTwo);
+    setPasteInfo({
+      lines: parsed.length,
+      extra: Math.max(0, parsed.length - REQUIRED_LINES),
+    });
+  };
+
+  const clearPaste = () => {
+    setPasteText("");
+    setPasteInfo(null);
+    setLines(["", ""]);
+  };
+
   const handleLineChange = (index: number, value: string) => {
     const newLines = [...lines];
     newLines[index] = value;
     setLines(newLines);
+    // Keep paste textarea roughly in sync
+    setPasteText(newLines.filter(Boolean).join("\n"));
   };
 
   const handleAddLink = () => {
     if (newLinkTitle.trim() && newLinkUrl.trim()) {
-      setLinks([...links, { title: newLinkTitle.trim(), url: newLinkUrl.trim() }]);
+      setLinks([
+        ...links,
+        { title: newLinkTitle.trim(), url: newLinkUrl.trim() },
+      ]);
       setNewLinkTitle("");
       setNewLinkUrl("");
     }
@@ -112,16 +178,36 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
     e.preventDefault();
     if (!shair) return;
 
+    // Client-side guard
+    const trimmed = lines.map((l) => (l || "").trim());
+    if (trimmed.length !== REQUIRED_LINES || trimmed.some((l) => !l)) {
+      showError("A shair must have exactly 2 non-empty lines");
+      return;
+    }
+    for (let i = 0; i < trimmed.length; i++) {
+      if (
+        trimmed[i].length < MIN_LINE_LENGTH ||
+        trimmed[i].length > MAX_LINE_LENGTH
+      ) {
+        showError(
+          `Line ${i + 1} must be between ${MIN_LINE_LENGTH} and ${MAX_LINE_LENGTH} characters`
+        );
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const formData = new FormData();
       formData.append("takhallus", takhallus);
-      formData.append("content", JSON.stringify(lines));
+      formData.append("content", JSON.stringify(trimmed));
       formData.append(
         "categories",
-        JSON.stringify(categories.split(",").map((c) => c.trim()))
+        JSON.stringify(
+          categories.split(",").map((c) => c.trim()).filter(Boolean)
+        )
       );
       formData.append("metaTitle", metaTitle);
       formData.append("metaDescription", metaDescription);
@@ -135,11 +221,16 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
       const response = await axios.patch<ApiResponse>(
         `/api/admin/dashboard/tarmeem/shair/${shair.slug}`,
         formData,
-        { headers: { "Content-Type": "multipart/form-data" }, withCredentials: true }
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true,
+        }
       );
 
       if (response.data.success) {
-        toast.success("Shair updated successfully!", { style: successToastStyle });
+        toast.success("Shair updated successfully!", {
+          style: successToastStyle,
+        });
         onUpdate();
         onClose();
       } else {
@@ -177,7 +268,10 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
             className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
           >
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h2 className="text-xl font-bold" style={{ color: COLORS.deepForest }}>
+              <h2
+                className="text-xl font-bold"
+                style={{ color: COLORS.deepForest }}
+              >
                 Update Shair
               </h2>
               <button
@@ -189,7 +283,10 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+            <form
+              onSubmit={handleSubmit}
+              className="flex-1 overflow-y-auto p-6 space-y-6"
+            >
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
                   {error}
@@ -210,7 +307,9 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Published Date</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Published Date
+                  </label>
                   <input
                     type="date"
                     value={publishedAt}
@@ -220,6 +319,99 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                 </div>
               </div>
 
+              {/* ---------- Quick Paste Panel ---------- */}
+              <div
+                className="rounded-xl border p-4"
+                style={{
+                  borderColor: `${COLORS.deepForest}30`,
+                  background: `${COLORS.warmWhite}60`,
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <label
+                    className="text-sm font-medium"
+                    style={{ color: COLORS.deepForest }}
+                  >
+                    شعر ایک ساتھ پیسٹ کریں
+                  </label>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{
+                      background: `${COLORS.deepForest}15`,
+                      color: COLORS.deepForest,
+                    }}
+                  >
+                    تجویز کردہ ⭐
+                  </span>
+                </div>
+
+                <p className="text-xs text-gray-500 mb-2">
+                  دونوں مصرعے پیسٹ کریں (ہر مصرع نئی سطر میں)۔ پہلے دو مصرعے
+                  خودبخود نیچے فیلڈز میں آ جائیں گے۔
+                </p>
+
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => handlePasteChange(e.target.value)}
+                  rows={4}
+                  dir="rtl"
+                  placeholder={"پہلا مصرع\nدوسرا مصرع"}
+                  className="w-full px-4 py-3 rounded-lg border focus:ring-2 focus:outline-none font-urdu leading-[2.2]"
+                  style={{
+                    borderColor: `${COLORS.deepForest}40`,
+                    background: "#FFFFFF",
+                  }}
+                />
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs">
+                    {pasteInfo && (
+                      <span className="text-gray-600">
+                        {pasteInfo.lines} مصرعے پڑھے گئے
+                      </span>
+                    )}
+                    {pasteInfo && pasteInfo.extra > 0 && (
+                      <span className="mr-3 text-amber-600">
+                        ⚠ ایک شعر میں صرف 2 مصرعے ہوتے ہیں — صرف پہلے دو استعمال
+                        ہوئے ({pasteInfo.extra} نظرانداز)
+                      </span>
+                    )}
+                  </div>
+                  {pasteText && (
+                    <button
+                      type="button"
+                      onClick={clearPaste}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      صاف کریں
+                    </button>
+                  )}
+                </div>
+
+                {/* Live preview */}
+                {(lines[0] || lines[1]) && (
+                  <div
+                    className="mt-3 rounded-lg border p-3"
+                    style={{
+                      borderColor: `${COLORS.deepForest}20`,
+                      background: `${COLORS.warmWhite}40`,
+                    }}
+                  >
+                    <p
+                      className="text-xs mb-2 font-medium"
+                      style={{ color: COLORS.deepForest }}
+                    >
+                      پیش نظارہ
+                    </p>
+                    <div className="font-urdu leading-[2] text-sm">
+                      <div>{lines[0]}</div>
+                      <div>{lines[1]}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ---------- Manual line edit ---------- */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Content (2 lines) <span className="text-red-500">*</span>
@@ -227,19 +419,19 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                 <div className="space-y-2">
                   <input
                     type="text"
-                    placeholder="First line"
+                    placeholder="مصرع اول"
                     value={lines[0] || ""}
                     onChange={(e) => handleLineChange(0, e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-urdu"
                   />
                   <input
                     type="text"
-                    placeholder="Second line"
+                    placeholder="مصرع دوم"
                     value={lines[1] || ""}
                     onChange={(e) => handleLineChange(1, e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-urdu"
                   />
                 </div>
               </div>
@@ -259,7 +451,9 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
               </div>
 
               <div>
-                <span className="block text-sm font-medium text-gray-700 mb-1">Featured</span>
+                <span className="block text-sm font-medium text-gray-700 mb-1">
+                  Featured
+                </span>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -267,13 +461,17 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                     onChange={(e) => setFeatured(e.target.checked)}
                     className="w-4 h-4 text-emerald-600 rounded"
                   />
-                  <span className="text-sm text-gray-600">Mark as Featured</span>
+                  <span className="text-sm text-gray-600">
+                    Mark as Featured
+                  </span>
                 </label>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Meta Title (SEO)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Meta Title (SEO)
+                  </label>
                   <input
                     type="text"
                     value={metaTitle}
@@ -283,7 +481,9 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Meta Description (SEO)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Meta Description (SEO)
+                  </label>
                   <input
                     type="text"
                     value={metaDescription}
@@ -295,12 +495,21 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
               </div>
 
               <div>
-                <span className="block text-sm font-medium text-gray-700 mb-2">External Links</span>
+                <span className="block text-sm font-medium text-gray-700 mb-2">
+                  External Links
+                </span>
                 <div className="space-y-2">
                   {links.map((link, index) => (
-                    <div key={`${link.url}-${index}`} className="flex gap-2 items-center text-sm">
-                      <span className="flex-1 font-medium text-gray-700">{link.title}</span>
-                      <span className="flex-1 text-gray-500 truncate">{link.url}</span>
+                    <div
+                      key={`${link.url}-${index}`}
+                      className="flex gap-2 items-center text-sm"
+                    >
+                      <span className="flex-1 font-medium text-gray-700">
+                        {link.title}
+                      </span>
+                      <span className="flex-1 text-gray-500 truncate">
+                        {link.url}
+                      </span>
                       <button
                         type="button"
                         onClick={() => handleRemoveLink(index)}
@@ -338,7 +547,9 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <span className="block text-sm font-medium text-gray-700 mb-1">Current Cover Image</span>
+                  <span className="block text-sm font-medium text-gray-700 mb-1">
+                    Current Cover Image
+                  </span>
                   {shair.coverImage && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -354,12 +565,16 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => setCoverImageFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) =>
+                        setCoverImageFile(e.target.files?.[0] ?? null)
+                      }
                       className="hidden"
                     />
                   </label>
                   {coverImageFile && (
-                    <span className="text-xs text-gray-500 mt-1 block">{coverImageFile.name}</span>
+                    <span className="text-xs text-gray-500 mt-1 block">
+                      {coverImageFile.name}
+                    </span>
                   )}
                 </div>
                 <div>
@@ -368,13 +583,16 @@ export default function UpdateShairForm({ shair, isOpen, onClose, onUpdate }: Up
                   </span>
                   <label className="cursor-pointer block">
                     <span className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                      <PlusCircleIcon className="w-5 h-5" /> Add / Replace Media (Max 20 files)
+                      <PlusCircleIcon className="w-5 h-5" /> Add / Replace Media
+                      (Max 20 files)
                     </span>
                     <input
                       type="file"
                       multiple
                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
-                      onChange={(e) => setMediaFiles(Array.from(e.target.files ?? []))}
+                      onChange={(e) =>
+                        setMediaFiles(Array.from(e.target.files ?? []))
+                      }
                       className="hidden"
                     />
                   </label>
