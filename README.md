@@ -12,7 +12,7 @@
 
 ## 🌟 Overview
 
-**Ru-e-Razab Shayar** is a modern Urdu poetry platform that combines traditional shayari with AI technology. Users can share, discover, and generate poetry with social features like likes, comments, and following. The platform includes a comprehensive admin panel for content management and user moderation.
+**Ru-e-Razab Shayar** is a modern Urdu poetry platform that combines traditional shayari with AI technology. Users can share, discover, and generate poetry with social features like likes, comments. The platform includes a comprehensive admin panel for content management and user moderation.
 
 > 📖 *"Ru-e-Razab" — Where words find their rhythm.*
 
